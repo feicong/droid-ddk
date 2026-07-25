@@ -36,6 +36,18 @@ class DockerfileContractTest(unittest.TestCase):
             makefile,
         )
 
+    def test_kernel_images_restore_recorded_build_paths(self):
+        for name in ("ddk", "ddk-min"):
+            dockerfile = (ROOT / f"docker/{name}/Dockerfile").read_text()
+            self.assertIn(
+                'ln -s "/opt/droid-ddk/src/${ANDROID_VER}" /kernel/src',
+                dockerfile,
+            )
+            self.assertIn(
+                'ln -s "/opt/droid-ddk/kdir/${artifact_platform}/${ANDROID_VER}" /kernel/out',
+                dockerfile,
+            )
+
     def test_makefile_selects_ndk_platform_from_host_architecture(self):
         makefile = (ROOT / "docker/Makefile").read_text()
         self.assertIn("DETECTED_MACHINE := $(shell uname -m)", makefile)

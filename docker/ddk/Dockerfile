@@ -38,9 +38,11 @@ LABEL org.opencontainers.image.title="Droid DDK ${ANDROID_VER}" \
 RUN --mount=type=bind,source=prebuilts,target=/mnt/prebuilts,readonly \
     set -eux; \
     artifact_platform="linux-${TARGETARCH}"; \
-    mkdir -p "/opt/droid-ddk/src" "/opt/droid-ddk/kdir/${artifact_platform}"; \
+    mkdir -p "/opt/droid-ddk/src" "/opt/droid-ddk/kdir/${artifact_platform}" /kernel; \
     tar -xf "/mnt/prebuilts/src/src.${ANDROID_VER}.tar.zst" -C /opt/droid-ddk/src; \
-    tar -xf "/mnt/prebuilts/kdir/${artifact_platform}/kdir.${ANDROID_VER}.tar.zst" -C "/opt/droid-ddk/kdir/${artifact_platform}"
+    tar -xf "/mnt/prebuilts/kdir/${artifact_platform}/kdir.${ANDROID_VER}.tar.zst" -C "/opt/droid-ddk/kdir/${artifact_platform}"; \
+    ln -s "/opt/droid-ddk/src/${ANDROID_VER}" /kernel/src; \
+    ln -s "/opt/droid-ddk/kdir/${artifact_platform}/${ANDROID_VER}" /kernel/out
 
 ENV DROID_DDK_ROOT=/opt/droid-ddk \
     CROSS_COMPILE=aarch64-linux-gnu- \
