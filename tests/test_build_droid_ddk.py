@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -62,19 +63,19 @@ class BuildDroidDdkTest(unittest.TestCase):
             expected,
         )
 
-    def test_arm64_matrix_contains_android17_only(self):
+    def test_arm64_matrix_contains_android16_and_android17(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-arm64")
         }
-        self.assertEqual(targets, {"android17-6.18"})
+        self.assertEqual(targets, {"android16-6.12", "android17-6.18"})
 
-    def test_amd64_matrix_contains_android17_only(self):
+    def test_amd64_matrix_contains_android16_and_android17(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-amd64")
         }
-        self.assertEqual(targets, {"android17-6.18"})
+        self.assertEqual(targets, {"android16-6.12", "android17-6.18"})
 
     def test_extract_archive_supports_official_ndk_zip(self):
         root = Path(self.temp_dir.name)
@@ -94,11 +95,11 @@ class BuildDroidDdkTest(unittest.TestCase):
             BUILD.DROID_DDK_ROOT / "kdir/linux-arm64/android17-6.18",
         )
 
-    def test_arm64_rust_spec_selects_android17_toolchain(self):
+    def test_arm64_rust_spec_selects_android16_toolchain(self):
         rust = BUILD.arm64_rust_spec(
-            self.mapping, "linux-arm64", "rust-1.91.1"
+            self.mapping, "linux-arm64", "rust-1.82.0"
         )
-        self.assertEqual(rust["version"], "1.91.1")
+        self.assertEqual(rust["version"], "1.82.0")
         self.assertEqual(rust["bindgenVersion"], "0.72.1")
 
     def test_kernel_make_command_passes_rust_tools_as_make_variables(self):
@@ -117,6 +118,18 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertIn("BINDGEN=/toolchain/bindgen", command)
         self.assertIn("RUST_LIB_SRC='/toolchain/rust library'", command)
         self.assertIn("HOSTCFLAGS=-I/usr/include/libdwarf", command)
+
+    def test_android16_enables_cfi_integer_normalization_symbol(self):
+        with patch.object(BUILD, "run") as run:
+            BUILD._configure_kernel(
+                Path("/kernel/src"),
+                Path("/kernel/out"),
+                {},
+                android_branch="android16-6.12",
+            )
+        commands = "\n".join(call.args[0] for call in run.call_args_list)
+        self.assertIn("-e CFI_ICALL_NORMALIZE_INTEGERS", commands)
+        self.assertNotIn("-e CONFIG_CFI_ICALL_NORMALIZE_INTEGERS", commands)
 
     def test_arm64_bindgen_wrapper_unsets_directory_clang_path(self):
         cargo_bin = BUILD.DROID_DDK_ROOT / ".cargo/bin"

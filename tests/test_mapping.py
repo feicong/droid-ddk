@@ -40,6 +40,17 @@ class MappingContractTest(unittest.TestCase):
         self.assertEqual(r29["root"], "android-ndk-r29")
         self.assertEqual(r29["sha256"], "4abbbcdc842f3d4879206e9695d52709603e52dd68d3c1fff04b3b5e7a308ecf")
 
+    def test_android16_and_android17_use_r29(self):
+        matrix = {item["android"]: item for item in MAPPING["matrix"]}
+        for target in ("android16-6.12", "android17-6.18"):
+            self.assertEqual(matrix[target]["ndk"], "r29")
+            self.assertEqual(
+                matrix[target]["platforms"], ["linux-amd64", "linux-arm64"]
+            )
+        rust = MAPPING["platforms"]["linux-arm64"]["rust"]["toolchains"]
+        self.assertEqual(rust["rust-1.82.0"]["version"], "1.82.0")
+        self.assertEqual(rust["rust-1.91.1"]["version"], "1.91.1")
+
 
 if __name__ == "__main__":
     unittest.main()

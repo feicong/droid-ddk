@@ -62,6 +62,11 @@
         "components": ["rust-src", "rustfmt"],
         "bindgenVersion": "0.72.1",
         "toolchains": {
+          "rust-1.82.0": {
+            "version": "1.82.0",
+            "components": ["rust-src", "rustfmt"],
+            "bindgenVersion": "0.72.1"
+          },
           "rust-1.91.1": {
             "version": "1.91.1",
             "components": ["rust-src", "rustfmt"],
@@ -100,7 +105,7 @@
     { "android": "android14-5.15", "clang": "clang-r487747c", "rust": null, "platforms": [] },
     { "android": "android14-6.1",  "clang": "clang-r487747c", "rust": null, "platforms": [] },
     { "android": "android15-6.6",  "clang": "clang-r510928", "rust": null, "platforms": [] },
-    { "android": "android16-6.12", "clang": "clang-r536225", "rust": "rust-1.82.0", "platforms": [] },
+    { "android": "android16-6.12", "clang": "clang-r536225", "rust": "rust-1.82.0", "ndk": "r29", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android17-6.18", "clang": "clang-r584948c", "rust": "rust-1.91.1", "ndk": "r29", "platforms": ["linux-amd64", "linux-arm64"] }
   ]
 }
