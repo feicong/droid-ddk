@@ -665,7 +665,7 @@ def build_kernels(mapping, platform_name, matrix_list, lto=None, build_proc=None
             rust_version=rust_ver,
             ndk_version=ndk_ver,
             kernel_host_cflags=item.get("hostCFlags"),
-            lto=lto,
+            lto=lto or item.get("lto"),
             build_proc=build_proc,
         )
         if result is None:
@@ -829,7 +829,7 @@ def cmd_build(args):
                     rust_version=rust_ver,
                     ndk_version=item.get("ndk"),
                     kernel_host_cflags=item.get("hostCFlags"),
-                    lto=args.lto,
+                    lto=args.lto or item.get("lto"),
                     build_proc=args.jobs,
                 )
 

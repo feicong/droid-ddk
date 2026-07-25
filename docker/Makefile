@@ -13,11 +13,21 @@ REG ?= docker.io/fsx199
 IMG ?= droid-ddk
 PUSH ?= 0
 FORCE ?= 0
-PLAT ?= linux/arm64
-PLATFORMS ?= $(PLAT)
 BUILDKIT ?= 1
 DOCKER ?= docker
-HOST_PLATFORM ?= $(if $(filter linux/arm64,$(PLAT)),linux-arm64,linux-amd64)
+
+DETECTED_MACHINE := $(shell uname -m)
+DETECTED_HOST_PLATFORM := $(if $(filter arm64 aarch64,$(DETECTED_MACHINE)),linux-arm64,linux-amd64)
+ifeq ($(origin HOST_PLATFORM), undefined)
+    ifeq ($(origin PLAT), undefined)
+        HOST_PLATFORM := $(DETECTED_HOST_PLATFORM)
+    else
+        HOST_PLATFORM := $(if $(filter linux/arm64,$(PLAT)),linux-arm64,linux-amd64)
+    endif
+endif
+PLAT ?= $(if $(filter linux-arm64,$(HOST_PLATFORM)),linux/arm64,linux/amd64)
+PLATFORMS ?= $(PLAT)
+
 MATRIX := $(shell jq -r --arg platform "$(HOST_PLATFORM)" '.matrix[] | select(.platforms | index($$platform)) | "\(.android):\(.clang):\(.rust // ""):\(.ndk // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
 
 BUILDER_IMAGE := $(REG)/droid-ddk-builder:latest

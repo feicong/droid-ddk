@@ -50,6 +50,20 @@ class BuildDroidDdkTest(unittest.TestCase):
             expected,
         )
 
+    def test_arm64_ndk_binary_path_uses_target_selected_r25c(self):
+        expected = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk"
+            / "25.2.9519653"
+            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        )
+        self.assertEqual(
+            BUILD.toolchain_bin(
+                self.mapping, "linux-arm64", "clang-r510928", "r25c"
+            ),
+            expected,
+        )
+
     def test_amd64_ndk_binary_path_uses_official_layout(self):
         expected = (
             BUILD.DROID_DDK_ROOT
@@ -60,20 +74,6 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertEqual(
             BUILD.toolchain_bin(
                 self.mapping, "linux-amd64", "clang-r584948c", "r29"
-            ),
-            expected,
-        )
-
-    def test_arm64_r25c_binary_path_uses_snownf_layout(self):
-        expected = (
-            BUILD.DROID_DDK_ROOT
-            / "ndk"
-            / "25.2.9519653"
-            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
-        )
-        self.assertEqual(
-            BUILD.toolchain_bin(
-                self.mapping, "linux-arm64", "clang-r510928", "r25c"
             ),
             expected,
         )
@@ -118,22 +118,32 @@ class BuildDroidDdkTest(unittest.TestCase):
             "-I/usr/include/libdwarf -DUSE_PKCS11_ENGINE",
         )
 
-    def test_arm64_matrix_contains_android15_to_android17(self):
-        targets = {
-            item["android"]
-            for item in BUILD.matrix_for_platform(self.mapping, "linux-arm64")
-        }
-        self.assertEqual(
-            targets, {"android15-6.6", "android16-6.12", "android17-6.18"}
+    def test_android14_6_1_adds_ubuntu_26_host_compatibility_flags(self):
+        ndk_bin = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk"
+            / "25.2.9519653"
+            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
         )
-
-    def test_amd64_matrix_contains_android15_to_android17(self):
-        targets = {
-            item["android"]
-            for item in BUILD.matrix_for_platform(self.mapping, "linux-amd64")
-        }
+        ndk_bin.mkdir(parents=True)
+        target = next(
+            item
+            for item in self.mapping["matrix"]
+            if item["android"] == "android14-6.1"
+        )
+        with patch.dict(os.environ, {"HOSTCFLAGS": ""}):
+            env = BUILD._make_kernel_env(
+                self.mapping,
+                "linux-arm64",
+                target["clang"],
+                ndk_version=target["ndk"],
+                kernel_host_cflags=target["hostCFlags"],
+            )
         self.assertEqual(
-            targets, {"android15-6.6", "android16-6.12", "android17-6.18"}
+            env["HOSTCFLAGS"],
+            "-I/usr/include/libdwarf "
+            "-Wno-error=incompatible-pointer-types-discards-qualifiers "
+            "-DUSE_PKCS11_ENGINE",
         )
 
     def test_extract_archive_supports_official_ndk_zip(self):
@@ -148,13 +158,70 @@ class BuildDroidDdkTest(unittest.TestCase):
             (destination / "android-ndk-r29/toolchains/llvm/bin/clang").is_file()
         )
 
+    def test_arm64_matrix_contains_android14_to_android17(self):
+        targets = {
+            item["android"]
+            for item in BUILD.matrix_for_platform(self.mapping, "linux-arm64")
+        }
+        self.assertEqual(
+            targets,
+            {
+                "android14-5.15",
+                "android14-6.1",
+                "android15-6.6",
+                "android16-6.12",
+                "android17-6.18",
+            },
+        )
+
+    def test_amd64_matrix_contains_android14_to_android17(self):
+        targets = {
+            item["android"]
+            for item in BUILD.matrix_for_platform(self.mapping, "linux-amd64")
+        }
+        self.assertEqual(
+            targets,
+            {
+                "android14-5.15",
+                "android14-6.1",
+                "android15-6.6",
+                "android16-6.12",
+                "android17-6.18",
+            },
+        )
+
+    def test_target_lto_is_used_when_command_line_does_not_override_it(self):
+        target = next(
+            item
+            for item in self.mapping["matrix"]
+            if item["android"] == "android14-5.15"
+        )
+        with patch.object(BUILD, "build_kernel_start", return_value=None) as start:
+            BUILD.build_kernels(self.mapping, "linux-arm64", [target])
+        self.assertEqual(start.call_args.kwargs["lto"], "thin")
+
+    def test_command_line_lto_overrides_target_default(self):
+        target = next(
+            item
+            for item in self.mapping["matrix"]
+            if item["android"] == "android14-5.15"
+        )
+        with patch.object(BUILD, "build_kernel_start", return_value=None) as start:
+            BUILD.build_kernels(
+                self.mapping,
+                "linux-arm64",
+                [target],
+                lto="none",
+            )
+        self.assertEqual(start.call_args.kwargs["lto"], "none")
+
     def test_kdir_path_contains_host_platform(self):
         self.assertEqual(
             BUILD.kdir_path(BUILD.DROID_DDK_ROOT, "linux-arm64", "android17-6.18"),
             BUILD.DROID_DDK_ROOT / "kdir/linux-arm64/android17-6.18",
         )
 
-    def test_arm64_rust_spec_selects_android16_toolchain(self):
+    def test_arm64_rust_spec_selects_target_toolchain(self):
         rust = BUILD.arm64_rust_spec(
             self.mapping, "linux-arm64", "rust-1.82.0"
         )

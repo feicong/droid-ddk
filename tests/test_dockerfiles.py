@@ -36,6 +36,18 @@ class DockerfileContractTest(unittest.TestCase):
             makefile,
         )
 
+    def test_makefile_selects_ndk_platform_from_host_architecture(self):
+        makefile = (ROOT / "docker/Makefile").read_text()
+        self.assertIn("DETECTED_MACHINE := $(shell uname -m)", makefile)
+        self.assertIn(
+            "$(filter arm64 aarch64,$(DETECTED_MACHINE)),linux-arm64,linux-amd64",
+            makefile,
+        )
+        self.assertIn(
+            "PLAT ?= $(if $(filter linux-arm64,$(HOST_PLATFORM)),linux/arm64,linux/amd64)",
+            makefile,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

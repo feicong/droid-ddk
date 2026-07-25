@@ -20,23 +20,24 @@ class MappingContractTest(unittest.TestCase):
         self.assertEqual(matrix["clang"], "clang-r584948c")
         self.assertEqual(matrix["rust"], "rust-1.91.1")
         self.assertEqual(matrix["ndk"], "r29")
-        self.assertIn("linux-arm64", matrix["platforms"])
+        self.assertEqual(matrix["platforms"], ["linux-amd64", "linux-arm64"])
 
-    def test_linux_arm64_ndk_r29_is_pinned(self):
+    def test_linux_arm64_ndk_is_pinned(self):
         ndks = MAPPING["platforms"]["linux-arm64"]["ndks"]
         r29 = ndks["r29"]
         self.assertEqual(r29["release"], "0.0.2")
         self.assertEqual(r29["archive"], "android-ndk-r29-linux-aarch64.tar.gz")
+        self.assertEqual(r29["archiveType"], "tar.gz")
         self.assertEqual(r29["sha256"], "48cb104c28e1ede5e1884b0b34d97d28c4df74cd4e8f7628202a4c2c8de78a50")
         self.assertEqual(r29["root"], "r29")
-        self.assertEqual(r29["archiveType"], "tar.gz")
         self.assertEqual(r29["bin"], "toolchains/llvm/prebuilt/linux-x86_64/bin")
 
         r25c = ndks["r25c"]
         self.assertEqual(r25c["release"], "0.0.1")
+        self.assertEqual(r25c["archive"], "android-ndk-r25c-aarch64-linux.tgz")
         self.assertEqual(r25c["archiveType"], "tar.gz")
-        self.assertEqual(r25c["root"], "25.2.9519653")
         self.assertEqual(r25c["sha256"], "cfe49e478cd635e209a3cff2639bdcfb23c6c932ef73d08bdf8ac6cc75f2bc5d")
+        self.assertEqual(r25c["root"], "25.2.9519653")
 
     def test_linux_amd64_uses_official_r29_ndk(self):
         platform = MAPPING["platforms"]["linux-amd64"]
@@ -53,24 +54,47 @@ class MappingContractTest(unittest.TestCase):
         self.assertEqual(r25c["root"], "android-ndk-r25c")
         self.assertEqual(r25c["sha256"], "769ee342ea75f80619d985c2da990c48b3d8eaf45f48783a2d48870d04b46108")
 
-    def test_android15_to_android17_select_platform_ndks(self):
+    def test_linux_arm64_rust_toolchains_include_android16_and_android17(self):
+        rust = MAPPING["platforms"]["linux-arm64"]["rust"]
+        self.assertEqual(rust["toolchains"]["rust-1.82.0"]["version"], "1.82.0")
+        self.assertEqual(rust["toolchains"]["rust-1.91.1"]["version"], "1.91.1")
+        self.assertEqual(MAPPING["platforms"]["linux-arm64"]["libclangPath"], "/usr/lib/llvm-22/lib")
+
+    def test_supported_targets_select_explicit_ndk_and_platforms(self):
         matrix = {item["android"]: item for item in MAPPING["matrix"]}
+        self.assertEqual(matrix["android14-5.15"]["ndk"], "r25c")
+        self.assertEqual(matrix["android14-6.1"]["ndk"], "r25c")
         self.assertEqual(matrix["android15-6.6"]["ndk"], "r25c")
         self.assertEqual(
             matrix["android15-6.6"]["hostCFlags"],
             "-DUSE_PKCS11_ENGINE",
         )
-        self.assertEqual(
-            matrix["android15-6.6"]["platforms"], ["linux-amd64", "linux-arm64"]
-        )
-        for target in ("android16-6.12", "android17-6.18"):
-            self.assertEqual(matrix[target]["ndk"], "r29")
+        self.assertEqual(matrix["android16-6.12"]["ndk"], "r29")
+        self.assertEqual(matrix["android17-6.18"]["ndk"], "r29")
+        for target in (
+            "android14-5.15",
+            "android14-6.1",
+            "android15-6.6",
+            "android16-6.12",
+            "android17-6.18",
+        ):
             self.assertEqual(
-                matrix[target]["platforms"], ["linux-amd64", "linux-arm64"]
+                matrix[target]["platforms"],
+                ["linux-amd64", "linux-arm64"],
             )
-        rust = MAPPING["platforms"]["linux-arm64"]["rust"]["toolchains"]
-        self.assertEqual(rust["rust-1.82.0"]["version"], "1.82.0")
-        self.assertEqual(rust["rust-1.91.1"]["version"], "1.91.1")
+
+        for target in ("android12-5.10", "android13-5.10", "android13-5.15"):
+            self.assertEqual(matrix[target]["platforms"], [])
+
+    def test_android14_uses_thin_lto_and_6_1_host_compatibility_flags(self):
+        matrix = {item["android"]: item for item in MAPPING["matrix"]}
+        self.assertEqual(matrix["android14-5.15"]["lto"], "thin")
+        self.assertEqual(matrix["android14-6.1"]["lto"], "thin")
+        self.assertEqual(
+            matrix["android14-6.1"]["hostCFlags"],
+            "-Wno-error=incompatible-pointer-types-discards-qualifiers "
+            "-DUSE_PKCS11_ENGINE",
+        )
 
 
 if __name__ == "__main__":
