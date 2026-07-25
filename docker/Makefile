@@ -1,80 +1,91 @@
-# docker/Makefile
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 
-# 依赖 jq 从 mapping.json 解析矩阵
 JQ := $(shell command -v jq 2>/dev/null)
 ifeq ($(JQ),)
   $(error "jq 未安装，请先安装 jq 以解析 $(ROOT)/mapping.json")
 endif
 
-MATRIX   := $(shell jq -r '.matrix[] | "\(.android):\(.clang):\(.rust // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
+BINDGEN_VER := $(shell jq -r '.platforms["linux-arm64"].rust.bindgenVersion' $(ROOT)/mapping.json)
 
-# ghcr.io/ylarod
-# docker.cnb.cool/ylarod/ddk
-REG ?= docker.cnb.cool/ylarod/ddk
-IMG ?= ddk
+REG ?= docker.io/fsx199
+IMG ?= droid-ddk
 PUSH ?= 0
 FORCE ?= 0
-PLAT ?= linux/amd64
-
-DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-REV  := $(shell git -C $(ROOT) rev-parse HEAD)
+PLAT ?= linux/arm64
+PLATFORMS ?= $(PLAT)
 BUILDKIT ?= 1
 DOCKER ?= docker
+HOST_PLATFORM ?= $(if $(filter linux/arm64,$(PLAT)),linux-arm64,linux-amd64)
+MATRIX := $(shell jq -r --arg platform "$(HOST_PLATFORM)" '.matrix[] | select(.platforms | index($$platform)) | "\(.android):\(.clang):\(.rust // ""):\(.ndk // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
 
-.PHONY: list builder cnb-dev toolchains build build-all build-min build-min-all push push-all push-min push-min-all push-toolchains
+BUILDER_IMAGE := $(REG)/droid-ddk-builder:latest
+TOOLCHAIN_IMAGE := $(REG)/droid-ddk-toolchain
+MIN_IMAGE := $(REG)/droid-ddk-min
+DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+REV := $(shell git -C $(ROOT) rev-parse HEAD)
+
+ifeq ($(PUSH),1)
+  BUILD_OUTPUT := --platform $(PLATFORMS) --push
+else
+  BUILD_OUTPUT := --platform $(PLAT) --load
+endif
+
+.PHONY: list builder toolchains build build-all build-min build-min-all push push-all push-min push-min-all push-toolchains
 
 list:
 	@for i in $(MATRIX); do echo $$i; done
 
 builder:
-	@echo "==> Building $(REG)/ddk-builder:latest"
-	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build \
-	  $(if $(filter 1,$(PUSH)),--push,--load) \
+	@echo "==> Building $(BUILDER_IMAGE) for $(if $(filter 1,$(PUSH)),$(PLATFORMS),$(PLAT))"
+	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build $(BUILD_OUTPUT) \
 	  -f $(ROOT)/docker/ddk-builder/Dockerfile \
-	  -t $(REG)/ddk-builder:latest $(ROOT)
-
-cnb-dev:
-	@echo "==> Building $(REG)/ddk-cnb-dev:latest"
-	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build \
-	  $(if $(filter 1,$(PUSH)),--push,--load) \
-	  -f $(ROOT)/docker/ddk-cnb-dev/Dockerfile \
-	  -t $(REG)/ddk-cnb-dev:latest $(ROOT)
+	  -t $(BUILDER_IMAGE) $(ROOT)
 
 toolchains:
 	@for pair in $(MATRIX); do \
 	  ANDROID=$$(echo $$pair | cut -d: -f1); \
 	  CLANG=$$(echo $$pair | cut -d: -f2); \
 	  RUST=$$(echo $$pair | cut -d: -f3); \
-	  if [ "$(FORCE)" = "1" ] || ! $(DOCKER) image inspect $(REG)/ddk-toolchain:$$ANDROID >/dev/null 2>&1; then \
-	    echo "==> Building toolchain $(REG)/ddk-toolchain:$$ANDROID (clang: $$CLANG$${RUST:+, rust: $$RUST})"; \
-	    DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build \
-	      $(if $(filter 1,$(PUSH)),--platform $(PLAT) --push,--load) \
+	  NDK=$$(echo $$pair | cut -d: -f4); \
+	  NDK_ARGS=""; \
+	  if [ "$(HOST_PLATFORM)" = "linux-arm64" ]; then \
+	    if [ -z "$$NDK" ]; then echo "NDK not found for $$ANDROID"; exit 2; fi; \
+	    NDK_URL=$$(jq -r --arg ndk "$$NDK" '.platforms["linux-arm64"].ndks[$$ndk].url' $(ROOT)/mapping.json); \
+	    NDK_SHA256=$$(jq -r --arg ndk "$$NDK" '.platforms["linux-arm64"].ndks[$$ndk].sha256' $(ROOT)/mapping.json); \
+	    NDK_ROOT=$$(jq -r --arg ndk "$$NDK" '.platforms["linux-arm64"].ndks[$$ndk].root' $(ROOT)/mapping.json); \
+	    if [ "$$NDK_URL" = "null" ] || [ "$$NDK_SHA256" = "null" ] || [ "$$NDK_ROOT" = "null" ]; then echo "NDK configuration missing for $$NDK"; exit 2; fi; \
+	    NDK_ARGS="--build-arg NDK_VERSION=$$NDK --build-arg NDK_URL=$$NDK_URL --build-arg NDK_SHA256=$$NDK_SHA256 --build-arg NDK_ROOT=$$NDK_ROOT"; \
+	  fi; \
+	  if [ "$(FORCE)" = "1" ] || ! $(DOCKER) image inspect $(TOOLCHAIN_IMAGE):$$ANDROID >/dev/null 2>&1; then \
+	    echo "==> Building $(TOOLCHAIN_IMAGE):$$ANDROID for $(if $(filter 1,$(PUSH)),$(PLATFORMS),$(PLAT))"; \
+	    DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build $(BUILD_OUTPUT) \
+	      --build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 	      --build-arg CLANG_VER=$$CLANG \
 	      --build-arg RUST_VER=$$RUST \
+	      --build-arg BINDGEN_VER=$(BINDGEN_VER) \
+	      $$NDK_ARGS \
 	      -f $(ROOT)/docker/ddk-toolchain/Dockerfile \
-	      -t $(REG)/ddk-toolchain:$$ANDROID $(ROOT) || exit $$?; \
+	      -t $(TOOLCHAIN_IMAGE):$$ANDROID $(ROOT) || exit $$?; \
 	  fi; \
 	done
 
 push-toolchains:
 	@for pair in $(MATRIX); do \
-	  ANDROID=$$(echo $$pair | cut -d: -f1); \
-	  echo "==> Pushing $(REG)/ddk-toolchain:$$ANDROID"; \
-	  $(DOCKER) push $(REG)/ddk-toolchain:$$ANDROID || exit $$?; \
+	  ANDROID=$${pair%%:*}; \
+	  $(DOCKER) push $(TOOLCHAIN_IMAGE):$$ANDROID || exit $$?; \
 	done
 
-# 用法：make build VER=android14-6.1
 build:
 	@if [ -z "$(VER)" ]; then echo "Usage: make build VER=<androidX-Y>"; exit 1; fi
 	@ENTRY=$$(echo "$(MATRIX)" | tr ' ' '\n' | grep "^$(VER):"); \
 	CLANG=$$(echo $$ENTRY | cut -d: -f2); \
 	RUST=$$(echo $$ENTRY | cut -d: -f3); \
 	if [ -z "$$CLANG" ]; then echo "CLANG not found for $(VER)"; exit 2; fi; \
-	echo "==> Building $(REG)/$(IMG):$(VER) with $$CLANG $${RUST:+(rust: $$RUST)}"; \
-	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build \
-	  $(if $(filter 1,$(PUSH)),--platform $(PLAT) --push,) \
+	echo "==> Building $(REG)/$(IMG):$(VER)"; \
+	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build $(BUILD_OUTPUT) \
+	  --build-arg TOOLCHAIN_IMAGE=$(TOOLCHAIN_IMAGE):$(VER) \
 	  --build-arg CLANG_VER=$$CLANG \
 	  --build-arg RUST_VER=$$RUST \
 	  --build-arg ANDROID_VER=$(VER) \
@@ -90,16 +101,15 @@ build-all:
 	  $(MAKE) build VER=$$VER || exit $$?; \
 	done
 
-# 用法：make build-min VER=android14-6.1
 build-min:
 	@if [ -z "$(VER)" ]; then echo "Usage: make build-min VER=<androidX-Y>"; exit 1; fi
 	@ENTRY=$$(echo "$(MATRIX)" | tr ' ' '\n' | grep "^$(VER):"); \
 	CLANG=$$(echo $$ENTRY | cut -d: -f2); \
 	RUST=$$(echo $$ENTRY | cut -d: -f3); \
 	if [ -z "$$CLANG" ]; then echo "CLANG not found for $(VER)"; exit 2; fi; \
-	echo "==> Building $(REG)/ddk-min:$(VER) with $$CLANG $${RUST:+(rust: $$RUST)}"; \
-	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build \
-	  $(if $(filter 1,$(PUSH)),--platform $(PLAT) --push,) \
+	echo "==> Building $(MIN_IMAGE):$(VER)"; \
+	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build $(BUILD_OUTPUT) \
+	  --build-arg TOOLCHAIN_IMAGE=$(TOOLCHAIN_IMAGE):$(VER) \
 	  --build-arg CLANG_VER=$$CLANG \
 	  --build-arg RUST_VER=$$RUST \
 	  --build-arg ANDROID_VER=$(VER) \
@@ -107,7 +117,7 @@ build-min:
 	  --build-arg REVISION=$(REV) \
 	  --build-arg CREATED=$(DATE) \
 	  -f $(ROOT)/docker/ddk-min/Dockerfile \
-	  -t $(REG)/ddk-min:$(VER) $(ROOT)
+	  -t $(MIN_IMAGE):$(VER) $(ROOT)
 
 build-min-all:
 	@for pair in $(MATRIX); do \
@@ -117,24 +127,20 @@ build-min-all:
 
 push:
 	@if [ -z "$(VER)" ]; then echo "Usage: make push VER=<androidX-Y>"; exit 1; fi
-	@echo "==> Pushing $(REG)/$(IMG):$(VER)"; \
 	$(DOCKER) push $(REG)/$(IMG):$(VER)
 
 push-all:
 	@for pair in $(MATRIX); do \
 	  VER=$${pair%%:*}; \
-	  echo "==> Pushing $(REG)/$(IMG):$$VER"; \
-	  $(DOCKER) push $(REG)/$(IMG):$$VER || exit $$?; \
+	  $(MAKE) push VER=$$VER || exit $$?; \
 	done
 
 push-min:
 	@if [ -z "$(VER)" ]; then echo "Usage: make push-min VER=<androidX-Y>"; exit 1; fi
-	@echo "==> Pushing $(REG)/ddk-min:$(VER)"; \
-	$(DOCKER) push $(REG)/ddk-min:$(VER)
+	$(DOCKER) push $(MIN_IMAGE):$(VER)
 
 push-min-all:
 	@for pair in $(MATRIX); do \
 	  VER=$${pair%%:*}; \
-	  echo "==> Pushing $(REG)/ddk-min:$$VER"; \
-	  $(DOCKER) push $(REG)/ddk-min:$$VER || exit $$?; \
+	  $(MAKE) push-min VER=$$VER || exit $$?; \
 	done

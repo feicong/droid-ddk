@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 set -euo pipefail
 
 # ============================================================================
-# DDK - Driver Development Kit Manager
+# Droid DDK - Driver Development Kit Manager
 # ============================================================================
 # A unified tool for building Android kernel modules using Docker containers
-# or local DDK installations.
+# or local Droid DDK installations.
 #
 # Features:
 #   - Dual mode: local (native) and docker (containerized) builds
@@ -15,37 +16,49 @@ set -euo pipefail
 #   - Self-updating capability
 #
 # Configuration:
-#   ~/.ddk/source  - Image source (cnb/github/docker)
-#   ~/.ddk/mode    - Run mode (local/docker)
-#   ~/.ddk/mapping.json - Target to clang version mapping
-#   .ddk-version   - Project-level target version (in project directory)
+#   ~/.droid-ddk/source  - Image source (cnb/github/docker)
+#   ~/.droid-ddk/mode    - Run mode (local/docker)
+#   ~/.droid-ddk/mapping.json - Target to clang version mapping
+#   .droid-ddk-version   - Project-level target version (in project directory)
 #
 # Environment Variables:
-#   DDK_ROOT   - Local DDK installation path (default: /opt/ddk)
-#   DDK_TARGET - Default build target
+#   DROID_DDK_ROOT   - Local DDK installation path (default: /opt/droid-ddk)
+#   DROID_DDK_TARGET - Default build target
 #
 # Target Resolution Priority:
 #   1. Command line argument (--target or positional)
-#   2. .ddk-version file in current directory
-#   3. DDK_TARGET environment variable
+#   2. .droid-ddk-version file in current directory
+#   3. DROID_DDK_TARGET environment variable
 #
 # ============================================================================
 # Global Variables
 # ============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLATFORM_LIB="${DROID_DDK_LIB_DIR:-$SCRIPT_DIR/lib}/platform.sh"
+if [[ ! -f "$PLATFORM_LIB" ]]; then
+  echo "Error: platform library not found: $PLATFORM_LIB" >&2
+  exit 1
+fi
+source "$PLATFORM_LIB"
+
 prog=$(basename "$0")
-DDK_CONFIG_DIR="$HOME/.ddk"
-DDK_SOURCE_CONFIG="$DDK_CONFIG_DIR/source"
-DDK_MODE_CONFIG="$DDK_CONFIG_DIR/mode"
-DDK_MAPPING_JSON="$DDK_CONFIG_DIR/mapping.json"
-DDK_ROOT="${DDK_ROOT:-/opt/ddk}"
-DDK_MODE=""
+DROID_DDK_CONFIG_DIR="$HOME/.droid-ddk"
+DROID_DDK_SOURCE_CONFIG="$DROID_DDK_CONFIG_DIR/source"
+DROID_DDK_MODE_CONFIG="$DROID_DDK_CONFIG_DIR/mode"
+DROID_DDK_MAPPING_JSON="$DROID_DDK_CONFIG_DIR/mapping.json"
+DROID_DDK_ROOT="${DROID_DDK_ROOT:-/opt/droid-ddk}"
+DROID_DDK_MODE=""
+DROID_DDK_PLATFORM="${DROID_DDK_PLATFORM:-}"
+DOCKER_PLATFORM=""
 SOURCE=""
 IMAGE_BASE=""
 CMD=""
 TARGET=""
 MAKE_ARGS=()
 ENV_VARS=()
-DOCKER_COMMON_ARGS=(--platform linux/amd64 --rm -v "$(pwd)":/build -w /build)
+DOCKER_COMMON_ARGS=()
+REPO_GITHUB="https://raw.githubusercontent.com/feicong/droid-ddk/main"
+REPO_CNB="https://cnb.cool/feicong/droid-ddk/-/git/raw/main"
 
 # ============================================================================
 # Utility Functions
@@ -60,13 +73,23 @@ ensure_dependency() {
   fi
 }
 
+resolve_docker_platform() {
+  if [[ -z "$DROID_DDK_PLATFORM" ]]; then
+    DROID_DDK_PLATFORM=$(droid_ddk_host_platform)
+  else
+    DROID_DDK_PLATFORM=$(droid_ddk_normalize_platform "$DROID_DDK_PLATFORM")
+  fi
+  DOCKER_PLATFORM=$(droid_ddk_docker_platform "$DROID_DDK_PLATFORM")
+  DOCKER_COMMON_ARGS=(--platform "$DOCKER_PLATFORM" --rm -v "$(pwd)":/build -w /build)
+}
+
 usage() {
   cat <<EOF
 Usage: $prog <command> [options] [-- <make-args>]
 
 Commands:
-  list                                        List all pulled DDK images
-  list-all                                    List all available DDK targets from repository
+  list                                        List all pulled Droid DDK images
+  list-all                                    List all available Droid DDK targets from repository
   pull <target>|--target <target>             Pull image $IMAGE_BASE:<target>
   build [<target>] [--target <target>] [-- <make-args>]
                                               Run 'make' inside container (for building)
@@ -76,20 +99,20 @@ Commands:
                                               Run 'make compdb' and update VSCode clangd settings
   shell [<target>] [--target <target>]
                                               Start an interactive shell in the container
-  update                                      Update ddk script to the latest version
+  update                                      Update dddk and its platform library
 
 Options:
   --target, -t   image tag like 'android12-5.10'
-                 (Priority: command arg > .ddk-version file > DDK_TARGET env)
+                 (Priority: command arg > .droid-ddk-version file > DROID_DDK_TARGET env)
   --env, -e      pass environment variable (can be used multiple times)
                  Example: --env CONFIG_FOO=y -e CONFIG_BAR=n
-  (docker platform is forced to linux/amd64)
+  --platform     linux/amd64 or linux/arm64; defaults to the host architecture
   -h, --help     show this help
 
 Target Resolution:
   1. Command line argument (--target or positional)
-  2. .ddk-version file in current directory
-  3. DDK_TARGET environment variable
+  2. .droid-ddk-version file in current directory
+  3. DROID_DDK_TARGET environment variable
 
 Examples:
   $prog list
@@ -107,10 +130,10 @@ Examples:
   $prog build android12-5.10 --env CONFIG_FOO=y -e CONFIG_BAR=n
   $prog shell -t android12-5.10 --env DEBUG=1
 
-  # Using .ddk-version file:
-  echo "android12-5.10" > .ddk-version
-  $prog build    # Will use android12-5.10 from .ddk-version
-  $prog clean    # Will use android12-5.10 from .ddk-version
+  # Using .droid-ddk-version file:
+  echo "android12-5.10" > .droid-ddk-version
+  $prog build    # Will use android12-5.10 from .droid-ddk-version
+  $prog clean    # Will use android12-5.10 from .droid-ddk-version
 EOF
 }
 
@@ -119,28 +142,28 @@ EOF
 # ============================================================================
 
 migrate_config() {
-  # Migration: if ~/.ddk is a file, migrate to directory structure
-  if [[ -f "$DDK_CONFIG_DIR" && ! -L "$DDK_CONFIG_DIR" ]]; then
+  # Migration: if ~/.droid-ddk is a file, migrate to directory structure
+  if [[ -f "$DROID_DDK_CONFIG_DIR" && ! -L "$DROID_DDK_CONFIG_DIR" ]]; then
     echo "Migrating configuration from file to directory structure..."
     local old_source
-    old_source=$(cat "$DDK_CONFIG_DIR")
-    rm -f "$DDK_CONFIG_DIR"
-    mkdir -p "$DDK_CONFIG_DIR"
-    echo "$old_source" > "$DDK_SOURCE_CONFIG"
-    echo "Migration completed: $DDK_CONFIG_DIR is now a directory"
+    old_source=$(cat "$DROID_DDK_CONFIG_DIR")
+    rm -f "$DROID_DDK_CONFIG_DIR"
+    mkdir -p "$DROID_DDK_CONFIG_DIR"
+    echo "$old_source" > "$DROID_DDK_SOURCE_CONFIG"
+    echo "Migration completed: $DROID_DDK_CONFIG_DIR is now a directory"
   fi
 }
 
 ensure_config_dir() {
-  if [[ ! -d "$DDK_CONFIG_DIR" ]]; then
-    mkdir -p "$DDK_CONFIG_DIR"
+  if [[ ! -d "$DROID_DDK_CONFIG_DIR" ]]; then
+    mkdir -p "$DROID_DDK_CONFIG_DIR"
   fi
 }
 
 configure_mode() {
-  # Check if DDK_ROOT exists and configure mode
-  if [[ -d "$DDK_ROOT" ]] && [[ ! -f "$DDK_MODE_CONFIG" ]]; then
-    echo "DDK_ROOT ($DDK_ROOT) detected. Please select running mode:"
+  # Check if DROID_DDK_ROOT exists and configure mode
+  if [[ -d "$DROID_DDK_ROOT" ]] && [[ ! -f "$DROID_DDK_MODE_CONFIG" ]]; then
+    echo "DROID_DDK_ROOT ($DROID_DDK_ROOT) detected. Please select running mode:"
     echo "1. local  (use local DDK installation)"
     echo "2. docker (use Docker containers)"
     echo ""
@@ -157,47 +180,47 @@ configure_mode() {
 
     case "$mode_choice" in
       1)
-        echo "local" > "$DDK_MODE_CONFIG"
+        echo "local" > "$DROID_DDK_MODE_CONFIG"
         echo "Selected: local mode"
         ;;
       2)
-        echo "docker" > "$DDK_MODE_CONFIG"
+        echo "docker" > "$DROID_DDK_MODE_CONFIG"
         echo "Selected: docker mode"
         ;;
       *)
         echo "Invalid option, defaulting to docker mode" >&2
-        echo "docker" > "$DDK_MODE_CONFIG"
+        echo "docker" > "$DROID_DDK_MODE_CONFIG"
         ;;
     esac
   fi
 
   # Determine running mode
-  if [[ -f "$DDK_MODE_CONFIG" ]]; then
-    DDK_MODE=$(cat "$DDK_MODE_CONFIG")
+  if [[ -f "$DROID_DDK_MODE_CONFIG" ]]; then
+    DROID_DDK_MODE=$(cat "$DROID_DDK_MODE_CONFIG")
 
     # Validate mode value
-    if [[ ! "$DDK_MODE" =~ ^(local|docker)$ ]]; then
-      echo "Warning: Invalid mode '$DDK_MODE' in config, resetting to docker" >&2
-      echo "docker" > "$DDK_MODE_CONFIG"
-      DDK_MODE="docker"
+    if [[ ! "$DROID_DDK_MODE" =~ ^(local|docker)$ ]]; then
+      echo "Warning: Invalid mode '$DROID_DDK_MODE' in config, resetting to docker" >&2
+      echo "docker" > "$DROID_DDK_MODE_CONFIG"
+      DROID_DDK_MODE="docker"
     fi
   else
-    DDK_MODE="docker"
+    DROID_DDK_MODE="docker"
   fi
 
   # Check dependencies for local mode
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     ensure_dependency jq
   fi
 }
 
 configure_source() {
   # Initialize config if not exists
-  if [[ ! -f "$DDK_SOURCE_CONFIG" ]]; then
+  if [[ ! -f "$DROID_DDK_SOURCE_CONFIG" ]]; then
     echo "First run detected. Please select an image source:"
-    echo "1. cnb (docker.cnb.cool/ylarod/ddk/ddk)"
-    echo "2. github (ghcr.io/ylarod/ddk)"
-    echo "3. docker (docker.io/ylarod/ddk)"
+    echo "1. cnb (docker.cnb.cool/feicong/droid-ddk/droid-ddk)"
+    echo "2. github (ghcr.io/feicong/droid-ddk)"
+    echo "3. docker (docker.io/fsx199/droid-ddk)"
     echo ""
     echo "Waiting 30 seconds (default: github)..."
 
@@ -212,48 +235,60 @@ configure_source() {
 
     case "$choice" in
       1)
-        echo "cnb" > "$DDK_SOURCE_CONFIG"
+        echo "cnb" > "$DROID_DDK_SOURCE_CONFIG"
         echo "Selected: cnb source"
         ;;
       2)
-        echo "github" > "$DDK_SOURCE_CONFIG"
+        echo "github" > "$DROID_DDK_SOURCE_CONFIG"
         echo "Selected: github source"
         ;;
       3)
-        echo "docker" > "$DDK_SOURCE_CONFIG"
+        echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
         echo "Selected: docker source"
         ;;
       *)
         echo "Invalid option, defaulting to github source" >&2
-        echo "github" > "$DDK_SOURCE_CONFIG"
+        echo "github" > "$DROID_DDK_SOURCE_CONFIG"
         ;;
     esac
   fi
 
   # Read configured source
-  SOURCE=$(cat "$DDK_SOURCE_CONFIG")
+  SOURCE=$(cat "$DROID_DDK_SOURCE_CONFIG")
 
   # Validate source value
   if [[ ! "$SOURCE" =~ ^(cnb|github|docker)$ ]]; then
     echo "Warning: Invalid source '$SOURCE' in config, resetting to github" >&2
-    echo "github" > "$DDK_SOURCE_CONFIG"
+    echo "github" > "$DROID_DDK_SOURCE_CONFIG"
     SOURCE="github"
   fi
 
-  # Set IMAGE_BASE based on source
+  set_image_base
+}
+
+set_image_base() {
+  if [[ -f "$DROID_DDK_MAPPING_JSON" ]] && command -v jq &> /dev/null; then
+    local mapped_image
+    mapped_image=$(jq -r --arg source "$SOURCE" '.registry["droid-ddk"][$source] // empty' "$DROID_DDK_MAPPING_JSON")
+    if [[ -n "$mapped_image" ]]; then
+      IMAGE_BASE="$mapped_image"
+      return
+    fi
+  fi
+
   case "$SOURCE" in
     cnb)
-      IMAGE_BASE="docker.cnb.cool/ylarod/ddk/ddk"
+      IMAGE_BASE="docker.cnb.cool/feicong/droid-ddk/droid-ddk"
       ;;
     github)
-      IMAGE_BASE="ghcr.io/ylarod/ddk"
+      IMAGE_BASE="ghcr.io/feicong/droid-ddk"
       ;;
     docker)
-      IMAGE_BASE="docker.io/ylarod/ddk"
+      IMAGE_BASE="docker.io/fsx199/droid-ddk"
       ;;
     *)
       echo "Warning: unknown source configuration '$SOURCE', using default github source" >&2
-      IMAGE_BASE="ghcr.io/ylarod/ddk"
+      IMAGE_BASE="ghcr.io/feicong/droid-ddk"
       ;;
   esac
 }
@@ -262,15 +297,15 @@ download_mapping_json() {
   local mapping_url
   case "$SOURCE" in
     cnb)
-      mapping_url="https://cnb.cool/Ylarod/ddk/-/git/raw/main/mapping.json?download=true"
+      mapping_url="$REPO_CNB/mapping.json?download=true"
       ;;
     github|docker|*)
-      mapping_url="https://raw.githubusercontent.com/Ylarod/ddk/main/mapping.json"
+      mapping_url="$REPO_GITHUB/mapping.json"
       ;;
   esac
 
   echo "Downloading mapping.json from: $mapping_url"
-  if curl -fsSL "$mapping_url" -o "$DDK_MAPPING_JSON"; then
+  if curl -fsSL "$mapping_url" -o "$DROID_DDK_MAPPING_JSON"; then
     echo "Successfully downloaded mapping.json"
     return 0
   else
@@ -281,7 +316,7 @@ download_mapping_json() {
 
 ensure_mapping_json() {
   # For local mode, ensure mapping.json exists
-  if [[ "$DDK_MODE" == "local" ]] && [[ ! -f "$DDK_MAPPING_JSON" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]] && [[ ! -f "$DROID_DDK_MAPPING_JSON" ]]; then
     download_mapping_json
   fi
 }
@@ -298,12 +333,12 @@ init_config() {
 # Target Resolution Functions
 # ============================================================================
 
-# Read target from .ddk-version file in current directory
+# Read target from .droid-ddk-version file in current directory
 # Returns:
 #   Echoes the target string if file exists and is valid
 #   Echoes empty string if file doesn't exist or is empty
 get_target_from_version_file() {
-  local version_file=".ddk-version"
+  local version_file=".droid-ddk-version"
 
   if [[ -f "$version_file" ]]; then
     # Read and trim whitespace
@@ -346,6 +381,8 @@ parse_args() {
         TARGET="$2"; shift 2;;
       --env|-e)
         ENV_VARS+=("$2"); shift 2;;
+      --platform)
+        DROID_DDK_PLATFORM=$(droid_ddk_normalize_platform "$2"); shift 2;;
       --help|-h)
         usage
         exit 0
@@ -379,8 +416,8 @@ parse_args() {
 
 # List available local DDK targets by checking directory existence
 # Reads matrix from mapping.json and verifies:
-#   - $DDK_ROOT/src/<android-version> exists
-#   - $DDK_ROOT/clang/<clang-version> exists
+#   - $DROID_DDK_ROOT/src/<android-version> exists
+#   - $DROID_DDK_ROOT/clang/<clang-version> exists
 # Displays:
 #   - Available targets (both dirs exist): ✓
 #   - Incomplete targets (one dir missing): ✗
@@ -388,47 +425,55 @@ parse_args() {
 # Note: jq dependency is checked in configure_mode() for local mode
 local_list() {
   # Ensure mapping.json exists
-  if [[ ! -f "$DDK_MAPPING_JSON" ]]; then
-    echo "Error: mapping.json not found at $DDK_MAPPING_JSON" >&2
-    echo "Please run 'ddk update' first" >&2
+  if [[ ! -f "$DROID_DDK_MAPPING_JSON" ]]; then
+    echo "Error: mapping.json not found at $DROID_DDK_MAPPING_JSON" >&2
+    echo "Please run 'dddk update' first" >&2
     exit 1
   fi
 
-  echo "Available local DDK targets:"
+  echo "Available local Droid DDK targets:"
   echo "----------------------------"
 
   # Parse matrix from mapping.json
   local matrix_count
-  matrix_count=$(jq '.matrix | length' "$DDK_MAPPING_JSON")
+  matrix_count=$(jq '.matrix | length' "$DROID_DDK_MAPPING_JSON")
 
   local available_count=0
   local incomplete_count=0
 
   for ((i=0; i<matrix_count; i++)); do
-    local android clang
-    android=$(jq -r ".matrix[$i].android" "$DDK_MAPPING_JSON")
-    clang=$(jq -r ".matrix[$i].clang" "$DDK_MAPPING_JSON")
+    local android clang toolchain_kind toolchain_dir
+    android=$(jq -r ".matrix[$i].android" "$DROID_DDK_MAPPING_JSON")
+    clang=$(jq -r ".matrix[$i].clang" "$DROID_DDK_MAPPING_JSON")
+    toolchain_kind=$(get_platform_toolchain_kind)
 
     # Check if required directories exist
-    local src_dir="$DDK_ROOT/src/$android"
-    local clang_dir="$DDK_ROOT/clang/$clang"
+    local src_dir="$DROID_DDK_ROOT/src/$android"
+    local kdir_dir="$DROID_DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$android"
+    if [[ "$toolchain_kind" == "aosp-clang" ]]; then
+      toolchain_dir="$DROID_DDK_ROOT/clang/$clang/bin"
+    else
+      toolchain_dir=$(get_ndk_bin)
+    fi
     local src_exists=false
-    local clang_exists=false
+    local kdir_exists=false
+    local toolchain_exists=false
 
     [[ -d "$src_dir" ]] && src_exists=true
-    [[ -d "$clang_dir" ]] && clang_exists=true
+    [[ -d "$kdir_dir" ]] && kdir_exists=true
+    [[ -d "$toolchain_dir" ]] && toolchain_exists=true
 
-    # Both exist - available target
-    if $src_exists && $clang_exists; then
-      echo "  $android ✓ (src: $android ✓, clang: $clang ✓)"
+    if $src_exists && $kdir_exists && $toolchain_exists; then
+      echo "  $android ✓ (src: ✓, kdir: ✓, toolchain: ✓)"
       available_count=$((available_count + 1))
-    # Only one exists - incomplete
-    elif $src_exists || $clang_exists; then
+    elif $src_exists || $kdir_exists || $toolchain_exists; then
       local src_mark="✗"
-      local clang_mark="✗"
+      local kdir_mark="✗"
+      local toolchain_mark="✗"
       $src_exists && src_mark="✓"
-      $clang_exists && clang_mark="✓"
-      echo "  $android ✗ (src: $src_mark, clang: $clang_mark)"
+      $kdir_exists && kdir_mark="✓"
+      $toolchain_exists && toolchain_mark="✓"
+      echo "  $android ✗ (src: $src_mark, kdir: $kdir_mark, toolchain: $toolchain_mark)"
       incomplete_count=$((incomplete_count + 1))
     fi
     # Both don't exist - skip (no output)
@@ -436,10 +481,11 @@ local_list() {
 
   echo ""
   if [[ $available_count -eq 0 ]] && [[ $incomplete_count -eq 0 ]]; then
-    echo "No targets found in $DDK_ROOT"
+    echo "No targets found in $DROID_DDK_ROOT"
     echo "Please ensure the following directories exist:"
-    echo "  - \$DDK_ROOT/src/<android-version>"
-    echo "  - \$DDK_ROOT/clang/<clang-version>"
+    echo "  - \$DROID_DDK_ROOT/src/<android-version>"
+    echo "  - \$DROID_DDK_ROOT/kdir/$DROID_DDK_PLATFORM/<android-version>"
+    echo "  - 对应宿主平台的工具链目录"
   else
     echo "Summary: $available_count available, $incomplete_count incomplete"
   fi
@@ -457,14 +503,14 @@ local_list() {
 get_clang_for_target() {
   local target=$1
 
-  if [[ ! -f "$DDK_MAPPING_JSON" ]]; then
-    echo "Error: mapping.json not found at $DDK_MAPPING_JSON" >&2
+  if [[ ! -f "$DROID_DDK_MAPPING_JSON" ]]; then
+    echo "Error: mapping.json not found at $DROID_DDK_MAPPING_JSON" >&2
     exit 1
   fi
 
   # Find clang version for the target
   local clang
-  clang=$(jq -r ".matrix[] | select(.android == \"$target\") | .clang" "$DDK_MAPPING_JSON")
+  clang=$(jq -r ".matrix[] | select(.android == \"$target\") | .clang" "$DROID_DDK_MAPPING_JSON")
 
   if [[ -z "$clang" || "$clang" == "null" ]]; then
     echo "Error: No clang version found for target '$target'" >&2
@@ -477,21 +523,38 @@ get_clang_for_target() {
 get_rust_for_target() {
   local target=$1
 
-  if [[ ! -f "$DDK_MAPPING_JSON" ]]; then
+  if [[ ! -f "$DROID_DDK_MAPPING_JSON" ]]; then
     return 0
   fi
 
   local rust
-  rust=$(jq -r ".matrix[] | select(.android == \"$target\") | .rust // empty" "$DDK_MAPPING_JSON")
+  rust=$(jq -r ".matrix[] | select(.android == \"$target\") | .rust // empty" "$DROID_DDK_MAPPING_JSON")
 
   echo "$rust"
+}
+
+get_platform_toolchain_kind() {
+  jq -r --arg platform "$DROID_DDK_PLATFORM" '.platforms[$platform].toolchainKind // empty' "$DROID_DDK_MAPPING_JSON"
+}
+
+get_ndk_bin() {
+  local target=$1
+  local ndk root bin
+  ndk=$(jq -r --arg target "$target" '.matrix[] | select(.android == $target) | .ndk // empty' "$DROID_DDK_MAPPING_JSON")
+  root=$(jq -r --arg platform "$DROID_DDK_PLATFORM" --arg ndk "$ndk" '.platforms[$platform].ndks[$ndk].root // empty' "$DROID_DDK_MAPPING_JSON")
+  bin=$(jq -r --arg platform "$DROID_DDK_PLATFORM" --arg ndk "$ndk" '.platforms[$platform].ndks[$ndk].bin // empty' "$DROID_DDK_MAPPING_JSON")
+  if [[ -z "$ndk" || -z "$root" || -z "$bin" ]]; then
+    echo "Error: NDK configuration missing for $target on $DROID_DDK_PLATFORM" >&2
+    exit 1
+  fi
+  printf '%s\n' "$DROID_DDK_ROOT/ndk/$root/$bin"
 }
 
 # Setup local build environment variables
 # Args:
 #   $1 - Android target name
 # Sets exports:
-#   DDK_ORIGINAL_PATH - backup of original PATH
+#   DROID_DDK_ORIGINAL_PATH - backup of original PATH
 #   KDIR - kernel source directory
 #   CLANG_PATH - clang binary directory
 #   PATH - prepends CLANG_PATH to PATH
@@ -500,22 +563,27 @@ get_rust_for_target() {
 #   Call restore_local_env() after use to cleanup
 setup_local_env() {
   local target=$1
-  local clang rust
+  local clang rust toolchain_kind
 
   clang=$(get_clang_for_target "$target")
   rust=$(get_rust_for_target "$target")
+  toolchain_kind=$(get_platform_toolchain_kind)
 
   # Backup PATH
-  export DDK_ORIGINAL_PATH="$PATH"
+  export DROID_DDK_ORIGINAL_PATH="$PATH"
 
   # Setup DDK environment
-  export KDIR="$DDK_ROOT/kdir/$target"
-  export CLANG_PATH="$DDK_ROOT/clang/$clang/bin"
+  export KDIR="$DROID_DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$target"
+  if [[ "$toolchain_kind" == "aosp-clang" ]]; then
+    export CLANG_PATH="$DROID_DDK_ROOT/clang/$clang/bin"
+  else
+    export CLANG_PATH="$(get_ndk_bin "$target")"
+  fi
   export PATH="$CLANG_PATH:$PATH"
 
   # Setup Rust if available
-  if [[ -n "$rust" ]]; then
-    export RUST_PATH="$DDK_ROOT/rust/$rust/bin"
+  if [[ "$toolchain_kind" == "aosp-clang" && -n "$rust" ]]; then
+    export RUST_PATH="$DROID_DDK_ROOT/rust/$rust/bin"
     if [[ -d "$RUST_PATH" ]]; then
       export PATH="$RUST_PATH:$PATH"
     fi
@@ -525,6 +593,21 @@ setup_local_env() {
   export ARCH=arm64
   export LLVM=1
   export LLVM_IAS=1
+  if [[ "$toolchain_kind" == "android-ndk" ]]; then
+    export CLANG_TRIPLE=aarch64-linux-gnu-
+    export CC="$CLANG_PATH/clang"
+    export LD="$CLANG_PATH/ld.lld"
+    export AR="$CLANG_PATH/llvm-ar"
+    export NM="$CLANG_PATH/llvm-nm"
+    export OBJCOPY="$CLANG_PATH/llvm-objcopy"
+    export OBJDUMP="$CLANG_PATH/llvm-objdump"
+    export STRIP="$CLANG_PATH/llvm-strip"
+    export HOSTCC="$CLANG_PATH/clang"
+    export HOSTCXX="$CLANG_PATH/clang++"
+    if [[ -d "$DROID_DDK_ROOT/.cargo/bin" ]]; then
+      export PATH="$DROID_DDK_ROOT/.cargo/bin:$PATH"
+    fi
+  fi
 
   # Verify directories exist
   if [[ ! -d "$KDIR" ]]; then
@@ -565,9 +648,9 @@ setup_local_env() {
 # This ensures the user's environment is not polluted
 restore_local_env() {
   # Restore PATH
-  if [[ -n "${DDK_ORIGINAL_PATH:-}" ]]; then
-    export PATH="$DDK_ORIGINAL_PATH"
-    unset DDK_ORIGINAL_PATH
+  if [[ -n "${DROID_DDK_ORIGINAL_PATH:-}" ]]; then
+    export PATH="$DROID_DDK_ORIGINAL_PATH"
+    unset DROID_DDK_ORIGINAL_PATH
   fi
 
   # Unset DDK-specific variables
@@ -578,6 +661,16 @@ restore_local_env() {
   unset ARCH
   unset LLVM
   unset LLVM_IAS
+  unset CLANG_TRIPLE
+  unset CC
+  unset LD
+  unset AR
+  unset NM
+  unset OBJCOPY
+  unset OBJDUMP
+  unset STRIP
+  unset HOSTCC
+  unset HOSTCXX
 }
 
 local_build() {
@@ -632,10 +725,8 @@ local_compdb() {
   echo "Generating compilation database for target: $TARGET"
   echo ""
 
-  local clang
-  clang=$(get_clang_for_target "$TARGET")
-
   setup_local_env "$TARGET"
+  local clangd_path="$CLANG_PATH/clangd"
 
   echo "Running make compdb..."
   make compdb
@@ -655,8 +746,6 @@ local_compdb() {
   # Update .vscode/settings.json
   local vscode_dir=".vscode"
   local settings_file="$vscode_dir/settings.json"
-  local clangd_path="/opt/ddk/clang/$clang/bin/clangd"
-
   echo "Updating VSCode settings..."
 
   # Create .vscode directory if it doesn't exist
@@ -704,49 +793,10 @@ local_shell() {
   echo "Starting interactive shell for target: $TARGET"
   echo ""
 
-  local clang rust
-
-  clang=$(get_clang_for_target "$TARGET")
-  rust=$(get_rust_for_target "$TARGET")
-
-  # Setup environment variables for the subshell
-  export KDIR="$DDK_ROOT/kdir/$TARGET"
-  export CLANG_PATH="$DDK_ROOT/clang/$clang/bin"
-  export PATH="$CLANG_PATH:$PATH"
-
-  # Setup Rust if available
-  if [[ -n "$rust" ]]; then
-    export RUST_PATH="$DDK_ROOT/rust/$rust/bin"
-    if [[ -d "$RUST_PATH" ]]; then
-      export PATH="$RUST_PATH:$PATH"
-    fi
-  fi
-
-  export CROSS_COMPILE=aarch64-linux-gnu-
-  export ARCH=arm64
-  export LLVM=1
-  export LLVM_IAS=1
-
-  # Export user-defined environment variables
-  if [[ ${#ENV_VARS[@]} -gt 0 ]]; then
-    for env_var in "${ENV_VARS[@]}"; do
-      export "$env_var"
-    done
-  fi
-
-  # Verify directories exist
-  if [[ ! -d "$KDIR" ]]; then
-    echo "Error: Kernel source directory not found: $KDIR" >&2
-    exit 1
-  fi
-
-  if [[ ! -d "$CLANG_PATH" ]]; then
-    echo "Error: Clang directory not found: $CLANG_PATH" >&2
-    exit 1
-  fi
+  setup_local_env "$TARGET"
 
   echo "Environment variables set:"
-  echo "  DDK_ROOT=$DDK_ROOT"
+  echo "  DROID_DDK_ROOT=$DROID_DDK_ROOT"
   echo "  KDIR=$KDIR"
   echo "  CLANG_PATH=$CLANG_PATH"
   if [[ -n "${RUST_PATH:-}" ]]; then
@@ -776,7 +826,8 @@ local_shell() {
   fi
 
   echo ""
-  echo "Exited DDK shell"
+  restore_local_env
+  echo "Exited Droid DDK shell"
 }
 
 # ============================================================================
@@ -807,7 +858,7 @@ run_docker() {
 # ============================================================================
 
 cmd_list() {
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     local_list
   else
     echo "Pulled DDK images:"
@@ -817,7 +868,7 @@ cmd_list() {
 
 cmd_list_all() {
   # Use local mapping.json if exists, otherwise download
-  if [[ ! -f "$DDK_MAPPING_JSON" ]]; then
+  if [[ ! -f "$DROID_DDK_MAPPING_JSON" ]]; then
     echo "Local mapping.json not found, downloading..."
     if ! download_mapping_json; then
       exit 1
@@ -829,10 +880,10 @@ cmd_list_all() {
 
   # Check if jq is available
   if command -v jq &> /dev/null; then
-    jq -r '.android[] | .name' "$DDK_MAPPING_JSON" | sed 's/^/  /'
+    jq -r '.android[] | .name' "$DROID_DDK_MAPPING_JSON" | sed 's/^/  /'
   else
     # Fallback: simple grep-based parsing if jq is not available
-    grep -o '"name": "[^"]*"' "$DDK_MAPPING_JSON" | cut -d'"' -f4 | sed 's/^/  /'
+    grep -o '"name": "[^"]*"' "$DROID_DDK_MAPPING_JSON" | cut -d'"' -f4 | sed 's/^/  /'
   fi
 }
 
@@ -922,7 +973,7 @@ cmd_update() {
 }
 
 cmd_pull() {
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     echo "Error: 'pull' command is not supported in local mode" >&2
     exit 1
   fi
@@ -933,7 +984,7 @@ cmd_pull() {
 }
 
 cmd_build() {
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     local_build
     return
   fi
@@ -950,7 +1001,7 @@ cmd_build() {
 }
 
 cmd_clean() {
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     local_clean
     return
   fi
@@ -961,7 +1012,7 @@ cmd_clean() {
 }
 
 cmd_compdb() {
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     local_compdb
     return
   fi
@@ -972,7 +1023,7 @@ cmd_compdb() {
 }
 
 cmd_shell() {
-  if [[ "$DDK_MODE" == "local" ]]; then
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
     local_shell
     return
   fi
@@ -1023,19 +1074,19 @@ main() {
 
   # Validate TARGET for commands that need it
   if [[ -z "$TARGET" ]]; then
-    # Try .ddk-version file first
+    # Try .droid-ddk-version file first
     local version_file_target
     version_file_target=$(get_target_from_version_file)
     if [[ -n "$version_file_target" ]]; then
       TARGET="$version_file_target"
-      echo "Using target from .ddk-version: $TARGET"
+      echo "Using target from .droid-ddk-version: $TARGET"
     # Then try environment variable fallback
-    elif [[ -n "${DDK_TARGET:-}" ]]; then
-      TARGET="$DDK_TARGET"
-      echo "Using target from DDK_TARGET: $TARGET"
+    elif [[ -n "${DROID_DDK_TARGET:-}" ]]; then
+      TARGET="$DROID_DDK_TARGET"
+      echo "Using target from DROID_DDK_TARGET: $TARGET"
     else
       echo "Error: target is required. Use --target or provide it as the first positional argument," >&2
-      echo "       or create a .ddk-version file, or set DDK_TARGET environment variable." >&2
+      echo "       or create a .droid-ddk-version file, or set DROID_DDK_TARGET environment variable." >&2
       usage
       exit 2
     fi

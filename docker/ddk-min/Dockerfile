@@ -1,23 +1,25 @@
-ARG ANDROID_VER
-FROM docker.cnb.cool/ylarod/ddk/ddk-toolchain:${ANDROID_VER}
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 
-WORKDIR /opt/ddk
+ARG TOOLCHAIN_IMAGE=docker.io/fsx199/droid-ddk-toolchain:latest
+FROM ${TOOLCHAIN_IMAGE}
 
+WORKDIR /opt/droid-ddk
+
+ARG TARGETARCH
 ARG ANDROID_VER
 ARG CLANG_VER
 ARG RUST_VER
 ARG VERSION="${ANDROID_VER}"
 ARG REVISION
 ARG CREATED
-ARG REPOSITORY="https://github.com/Ylarod/ddk"
-ARG HOMEPAGE="https://github.com/Ylarod/ddk"
-ARG DOCUMENTATION="https://github.com/Ylarod/ddk#readme"
-ARG ISSUES="https://github.com/Ylarod/ddk/issues"
+ARG REPOSITORY="https://github.com/feicong/droid-ddk"
+ARG HOMEPAGE="https://github.com/feicong/droid-ddk"
+ARG DOCUMENTATION="https://github.com/feicong/droid-ddk#readme"
 ARG LICENSE="Apache-2.0"
-ARG VENDOR="Ylarod"
+ARG VENDOR="feicong"
 
-LABEL org.opencontainers.image.title="DDK-min ${ANDROID_VER}" \
-      org.opencontainers.image.description="Minimal Kernel Driver Development Kit for ${ANDROID_VER} (modules_prepare only)" \
+LABEL org.opencontainers.image.title="Droid DDK-min ${ANDROID_VER}" \
+      org.opencontainers.image.description="Minimal Kernel Driver Development Kit for ${ANDROID_VER}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
@@ -26,27 +28,28 @@ LABEL org.opencontainers.image.title="DDK-min ${ANDROID_VER}" \
       org.opencontainers.image.documentation="${DOCUMENTATION}" \
       org.opencontainers.image.licenses="${LICENSE}" \
       org.opencontainers.image.vendor="${VENDOR}" \
-      io.ddk.project="ddk" \
-      io.ddk.variant="min" \
-      io.ddk.android.version="${ANDROID_VER}" \
-      io.ddk.clang.version="${CLANG_VER}" \
-      io.ddk.rust.version="${RUST_VER}" \
-      io.ddk.kernel.src="${ANDROID_VER}"
+      io.droid-ddk.project="droid-ddk" \
+      io.droid-ddk.variant="min" \
+      io.droid-ddk.android.version="${ANDROID_VER}" \
+      io.droid-ddk.clang.reference="${CLANG_VER}" \
+      io.droid-ddk.rust.version="${RUST_VER}" \
+      io.droid-ddk.kernel.src="${ANDROID_VER}"
 
-RUN --mount=type=bind,source=./prebuilts/src/src.${ANDROID_VER}.tar.zst,target=/tmp/src.tar.zst,readonly \
-    --mount=type=bind,source=./prebuilts/kdir-min/kdir.${ANDROID_VER}.tar.zst,target=/tmp/kdir.tar.zst,readonly \
-    mkdir -p /opt/ddk/src/ /opt/ddk/kdir/; \
-    tar -xf /tmp/src.tar.zst -C /opt/ddk/src/; \
-    tar -xf /tmp/kdir.tar.zst -C /opt/ddk/kdir/;
+RUN --mount=type=bind,source=prebuilts,target=/mnt/prebuilts,readonly \
+    set -eux; \
+    artifact_platform="linux-${TARGETARCH}"; \
+    mkdir -p "/opt/droid-ddk/src" "/opt/droid-ddk/kdir/${artifact_platform}"; \
+    tar -xf "/mnt/prebuilts/src/src.${ANDROID_VER}.tar.zst" -C /opt/droid-ddk/src; \
+    tar -xf "/mnt/prebuilts/kdir-min/${artifact_platform}/kdir.${ANDROID_VER}.tar.zst" -C "/opt/droid-ddk/kdir/${artifact_platform}"
 
-ENV DDK_ROOT=/opt/ddk \
+ENV DROID_DDK_ROOT=/opt/droid-ddk \
     CROSS_COMPILE=aarch64-linux-gnu- \
     ARCH=arm64 \
     LLVM=1 \
     LLVM_IAS=1 \
-    KERNEL_SRC=/opt/ddk/kdir/${ANDROID_VER} \
-    KDIR=/opt/ddk/kdir/${ANDROID_VER} \
-    CLANG_PATH=/opt/ddk/clang/${CLANG_VER}/bin \
-    PATH=/opt/ddk/clang/${CLANG_VER}/bin:/opt/ddk/rust/${RUST_VER}/bin:$PATH
+    KERNEL_SRC=/opt/droid-ddk/kdir/linux-${TARGETARCH}/${ANDROID_VER} \
+    KDIR=/opt/droid-ddk/kdir/linux-${TARGETARCH}/${ANDROID_VER} \
+    CLANG_PATH=/opt/droid-ddk/toolchain/bin \
+    PATH=/opt/droid-ddk/toolchain/bin:/opt/droid-ddk/.cargo/bin:$PATH
 
 CMD ["/bin/bash"]

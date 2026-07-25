@@ -4,3 +4,4 @@ setup.lock
 docker/.dockerignore.*
 !docker/.dockerignore.template
 .pkg
+.cache/
