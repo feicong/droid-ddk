@@ -1,320 +1,187 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# === Default Configuration ===
 MAPPING_FILE="${MAPPING_FILE:-$SCRIPT_DIR/../mapping.json}"
 SRC_REGISTRY_TYPE=""
 DST_REGISTRY_TYPE=""
 PROJECT="all"
 TAG_FILTER=""
-DRY_RUN=false
 USE_DATE=""
 NEW_DATE=""
-DEFAULT_DATE="$(date +%Y%m%d)"
+DRY_RUN=false
+PROJECTS=(droid-ddk droid-ddk-min droid-ddk-toolchain)
 
-# === Parse command line arguments ===
 usage() {
-  cat << EOF
+    cat <<EOF
 Usage: $0 [OPTIONS]
 
-Sync container images between registries using skopeo.
+Sync Droid DDK container images between registries.
 
-OPTIONS:
-  -s, --src <registry>     Source registry type (github|docker|cnb) [REQUIRED]
-  -d, --dst <registry>     Destination registry type (github|docker|cnb) [REQUIRED]
-  -p, --project <name>     Project to sync (ddk|ddk-min|ddk-toolchain|ddk-clang|all) [default: all]
-  -t, --tag <tag>          Only sync this specific tag [default: sync all tags]
-  -m, --mapping <file>     Path to mapping.json file [default: ./mapping.json]
-  --date <date>            Sync images with date tag (src:ver-date -> dst:ver-date)
-  --new-date <date>        Add new date tag to destination (src:ver -> dst:ver-newdate)
-  --dry-run                Show what would be synced without actually syncing
-  -h, --help               Show this help message
-
-TAG MODES:
-  No date flags:           src:ver -> dst:ver
-  --date 20250101:         src:ver-20250101 -> dst:ver-20250101
-  --new-date 20250101:     src:ver -> dst:ver-20250101
-
-EXAMPLES:
-  $0 -s github -d docker                          # Sync: src:ver -> dst:ver
-  $0 -s github -d cnb --date 20250101             # Sync: src:ver-20250101 -> dst:ver-20250101
-  $0 -s github -d docker --new-date 20250101      # Sync: src:ver -> dst:ver-20250101
-  $0 -s github -d cnb -p ddk --dry-run            # Preview sync for ddk only
-  $0 -s cnb -d github -p ddk -t android14-6.1     # Sync single tag
-
+Options:
+  -s, --src <registry>     Source registry (github|docker|cnb)
+  -d, --dst <registry>     Destination registry (github|docker|cnb)
+  -p, --project <name>     droid-ddk|droid-ddk-min|droid-ddk-toolchain|all
+  -t, --tag <tag>          Sync one supported Android target
+  -m, --mapping <file>     Path to mapping.json
+  --date <date>            Read and write the existing dated tag
+  --new-date <date>        Read the base tag and write a dated tag
+  --dry-run                Print operations without copying images
+  -h, --help               Show this help
 EOF
-  exit 0
+}
+
+fail() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 2
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+registry_image() {
+    local project="$1"
+    local registry_type="$2"
+    jq -er \
+        --arg project "$project" \
+        --arg registry "$registry_type" \
+        '.registry[$project][$registry] | select(type == "string" and length > 0)' \
+        "$MAPPING_FILE"
+}
+
+supported_tags() {
+    jq -r \
+        '[.matrix[] | select((.platforms // []) | length > 0) | .android] | unique[]' \
+        "$MAPPING_FILE"
+}
+
+is_supported_tag() {
+    local tag="$1"
+    jq -e \
+        --arg tag "$tag" \
+        'any(.matrix[]; .android == $tag and ((.platforms // []) | length > 0))' \
+        "$MAPPING_FILE" >/dev/null
+}
+
+sync_image() {
+    local src_image="$1"
+    local dst_image="$2"
+    local base_tag="$3"
+    local src_tag="$base_tag"
+    local dst_tag="$base_tag"
+
+    if [[ -n "$USE_DATE" ]]; then
+        src_tag="${base_tag}-${USE_DATE}"
+        dst_tag="$src_tag"
+    elif [[ -n "$NEW_DATE" ]]; then
+        dst_tag="${base_tag}-${NEW_DATE}"
+    fi
+
+    local src_full="${src_image}:${src_tag}"
+    local dst_full="${dst_image}:${dst_tag}"
+    printf '%s\n' "${src_full} -> ${dst_full}"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        return
+    fi
+    skopeo copy "docker://${src_full}" "docker://${dst_full}"
+}
+
+sync_project() {
+    local project="$1"
+    local src_image
+    local dst_image
+    src_image=$(registry_image "$project" "$SRC_REGISTRY_TYPE")
+    dst_image=$(registry_image "$project" "$DST_REGISTRY_TYPE")
+
+    if [[ -n "$TAG_FILTER" ]]; then
+        sync_image "$src_image" "$dst_image" "$TAG_FILTER"
+        return
+    fi
+
+    local tag
+    while IFS= read -r tag; do
+        [[ -n "$tag" ]] || continue
+        sync_image "$src_image" "$dst_image" "$tag"
+    done < <(supported_tags)
 }
 
 while [[ $# -gt 0 ]]; do
-  case $1 in
-    -s|--src)
-      SRC_REGISTRY_TYPE="$2"
-      shift 2
-      ;;
-    -d|--dst)
-      DST_REGISTRY_TYPE="$2"
-      shift 2
-      ;;
-    -p|--project)
-      PROJECT="$2"
-      shift 2
-      ;;
-    -t|--tag)
-      TAG_FILTER="$2"
-      shift 2
-      ;;
-    -m|--mapping)
-      MAPPING_FILE="$2"
-      shift 2
-      ;;
-    --date)
-      USE_DATE="$2"
-      shift 2
-      ;;
-    --new-date)
-      NEW_DATE="$2"
-      shift 2
-      ;;
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      ;;
-    *)
-      echo "Error: Unknown option: $1"
-      usage
-      ;;
-  esac
+    case "$1" in
+        -s|--src)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            SRC_REGISTRY_TYPE="$2"
+            shift 2
+            ;;
+        -d|--dst)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            DST_REGISTRY_TYPE="$2"
+            shift 2
+            ;;
+        -p|--project)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            PROJECT="$2"
+            shift 2
+            ;;
+        -t|--tag)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            TAG_FILTER="$2"
+            shift 2
+            ;;
+        -m|--mapping)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            MAPPING_FILE="$2"
+            shift 2
+            ;;
+        --date)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            USE_DATE="$2"
+            shift 2
+            ;;
+        --new-date)
+            [[ $# -ge 2 ]] || fail "$1 requires a value"
+            NEW_DATE="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "unknown option: $1"
+            ;;
+    esac
 done
 
-# === Functions ===
+require_command jq
+[[ -f "$MAPPING_FILE" ]] || fail "mapping file not found: $MAPPING_FILE"
+[[ -n "$SRC_REGISTRY_TYPE" ]] || fail "source registry is required"
+[[ -n "$DST_REGISTRY_TYPE" ]] || fail "destination registry is required"
+[[ -z "$USE_DATE" || -z "$NEW_DATE" ]] || fail "--date and --new-date are mutually exclusive"
 
-# Check if command exists
-check_command() {
-  local cmd="$1"
-  local install_hint="$2"
+case "$PROJECT" in
+    all|droid-ddk|droid-ddk-min|droid-ddk-toolchain) ;;
+    *) fail "unknown project: $PROJECT" ;;
+esac
 
-  if ! command -v "$cmd" &> /dev/null; then
-    echo "Error: $cmd not found. Please install it first."
-    echo "$install_hint"
-    exit 1
-  fi
-}
-
-# Validate registry type
-validate_registry_type() {
-  local registry_type="$1"
-  local registry_label="$2"
-
-  if ! jq -e ".registry.ddk.$registry_type" "$MAPPING_FILE" > /dev/null 2>&1; then
-    echo "Error: Invalid $registry_label registry type: $registry_type"
-    echo "Valid types: github, docker, cnb"
-    exit 1
-  fi
-}
-
-# Check dependencies
-check_command "skopeo" "   macOS: brew install skopeo
-   Linux: apt install skopeo / yum install skopeo"
-
-check_command "jq" "   macOS: brew install jq
-   Linux: apt install jq / yum install jq"
-
-if [ ! -f "$MAPPING_FILE" ]; then
-  echo "Error: Mapping file not found: $MAPPING_FILE"
-  exit 1
+if [[ -n "$TAG_FILTER" ]]; then
+    is_supported_tag "$TAG_FILTER" || fail "unsupported target: $TAG_FILTER"
 fi
 
-# Check required parameters
-if [[ -z "$SRC_REGISTRY_TYPE" ]]; then
-  echo "Error: Source registry type is required. Use -s or --src"
-  echo "Run '$0 --help' for usage information"
-  exit 1
+if [[ "$DRY_RUN" != true ]]; then
+    require_command skopeo
 fi
 
-if [[ -z "$DST_REGISTRY_TYPE" ]]; then
-  echo "Error: Destination registry type is required. Use -d or --dst"
-  echo "Run '$0 --help' for usage information"
-  exit 1
-fi
-
-# Validate registry types
-validate_registry_type "$SRC_REGISTRY_TYPE" "source"
-validate_registry_type "$DST_REGISTRY_TYPE" "destination"
-
-# Validate project
-if [[ "$PROJECT" != "all" && "$PROJECT" != "ddk" && "$PROJECT" != "ddk-min" && "$PROJECT" != "ddk-toolchain" && "$PROJECT" != "ddk-clang" ]]; then
-  echo "Error: Invalid project: $PROJECT"
-  echo "Valid projects: ddk, ddk-min, ddk-toolchain, ddk-clang, all"
-  exit 1
-fi
-
-# Validate date options (cannot use both)
-if [[ -n "$USE_DATE" && -n "$NEW_DATE" ]]; then
-  echo "Error: Cannot use both --date and --new-date at the same time"
-  exit 1
-fi
-
-echo "Registry Image Sync Tool"
-echo "   Source: $SRC_REGISTRY_TYPE"
-echo "   Destination: $DST_REGISTRY_TYPE"
-echo "   Project: $PROJECT"
-echo "   Tag: ${TAG_FILTER:-all}"
-echo "   Mapping: $MAPPING_FILE"
-
-# Determine tag mode
-if [[ -n "$USE_DATE" ]]; then
-  echo "   Tag Mode: src:ver-${USE_DATE} -> dst:ver-${USE_DATE}"
-elif [[ -n "$NEW_DATE" ]]; then
-  echo "   Tag Mode: src:ver -> dst:ver-${NEW_DATE}"
+if [[ "$PROJECT" == all ]]; then
+    for project in "${PROJECTS[@]}"; do
+        sync_project "$project"
+    done
 else
-  echo "   Tag Mode: src:ver -> dst:ver"
-fi
-
-if [[ "$DRY_RUN" == true ]]; then
-  echo "   Mode: DRY RUN (no actual sync will be performed)"
-fi
-echo
-
-# Function: sync image
-sync_image() {
-  local src_image="$1"
-  local dst_image="$2"
-  local base_tag="$3"
-
-  local src_tag="$base_tag"
-  local dst_tag="$base_tag"
-
-  # Apply date logic based on flags
-  if [[ -n "$USE_DATE" ]]; then
-    # Mode: src:ver-date -> dst:ver-date
-    src_tag="${base_tag}-${USE_DATE}"
-    dst_tag="${base_tag}-${USE_DATE}"
-  elif [[ -n "$NEW_DATE" ]]; then
-    # Mode: src:ver -> dst:ver-newdate
-    src_tag="$base_tag"
-    dst_tag="${base_tag}-${NEW_DATE}"
-  else
-    # Mode: src:ver -> dst:ver
-    src_tag="$base_tag"
-    dst_tag="$base_tag"
-  fi
-
-  local src_full="${src_image}:${src_tag}"
-  local dst_full="${dst_image}:${dst_tag}"
-
-  echo "==> Syncing: ${src_full}"
-  echo "     -> ${dst_full}"
-
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "    [DRY RUN] Would sync to ${dst_full}"
-    echo
-    return 0
-  fi
-
-  # Use skopeo to copy directly between registries
-  if skopeo copy "docker://${src_full}" "docker://${dst_full}"; then
-    echo "    [OK] Synced to ${dst_full}"
-  else
-    echo "    [FAIL] Failed to sync ${dst_full}"
-    return 1
-  fi
-
-  echo
-}
-
-# Get registry URLs from mapping.json
-SRC_REGISTRY_DDK=$(jq -r ".registry.ddk.$SRC_REGISTRY_TYPE" "$MAPPING_FILE")
-DST_REGISTRY_DDK=$(jq -r ".registry.ddk.$DST_REGISTRY_TYPE" "$MAPPING_FILE")
-SRC_REGISTRY_DDK_MIN=$(jq -r ".registry[\"ddk-min\"].$SRC_REGISTRY_TYPE" "$MAPPING_FILE")
-DST_REGISTRY_DDK_MIN=$(jq -r ".registry[\"ddk-min\"].$DST_REGISTRY_TYPE" "$MAPPING_FILE")
-SRC_REGISTRY_TOOLCHAIN=$(jq -r ".registry[\"ddk-toolchain\"].$SRC_REGISTRY_TYPE" "$MAPPING_FILE")
-DST_REGISTRY_TOOLCHAIN=$(jq -r ".registry[\"ddk-toolchain\"].$DST_REGISTRY_TYPE" "$MAPPING_FILE")
-SRC_REGISTRY_CLANG=$(jq -r ".registry[\"ddk-clang\"].$SRC_REGISTRY_TYPE" "$MAPPING_FILE")
-DST_REGISTRY_CLANG=$(jq -r ".registry[\"ddk-clang\"].$DST_REGISTRY_TYPE" "$MAPPING_FILE")
-
-echo "   DDK: $SRC_REGISTRY_DDK -> $DST_REGISTRY_DDK"
-echo "   DDK-Min: $SRC_REGISTRY_DDK_MIN -> $DST_REGISTRY_DDK_MIN"
-echo "   Toolchain: $SRC_REGISTRY_TOOLCHAIN -> $DST_REGISTRY_TOOLCHAIN"
-echo "   Clang (deprecated): $SRC_REGISTRY_CLANG -> $DST_REGISTRY_CLANG"
-echo
-
-# Process toolchain images
-if [[ "$PROJECT" == "all" || "$PROJECT" == "ddk-toolchain" ]]; then
-  echo "Processing toolchain images..."
-  if [[ -n "$TAG_FILTER" ]]; then
-    toolchain_android_array=("$TAG_FILTER")
-  else
-    toolchain_android_tags=$(jq -r '.matrix[].android' "$MAPPING_FILE")
-    IFS=$'\n' read -d '' -r -a toolchain_android_array <<< "$toolchain_android_tags" || true
-  fi
-
-  for android_tag in "${toolchain_android_array[@]}"; do
-    if [[ -z "$android_tag" || "$android_tag" == "null" ]]; then
-      continue
-    fi
-
-    echo "[Toolchain] ${android_tag}"
-    sync_image "$SRC_REGISTRY_TOOLCHAIN" "$DST_REGISTRY_TOOLCHAIN" "$android_tag" || echo "WARNING: Failed to sync ${android_tag}"
-  done
-fi
-
-# Process clang images (deprecated, kept for backward compatibility)
-if [[ "$PROJECT" == "ddk-clang" ]]; then
-  echo "Processing clang images (deprecated)..."
-  if [[ -n "$TAG_FILTER" ]]; then
-    clang_version_array=("$TAG_FILTER")
-  else
-    clang_versions=$(jq -r '.clang[].version' "$MAPPING_FILE")
-    IFS=$'\n' read -d '' -r -a clang_version_array <<< "$clang_versions" || true
-  fi
-
-  for version in "${clang_version_array[@]}"; do
-    echo "[Clang] ${version} (deprecated)"
-    sync_image "$SRC_REGISTRY_CLANG" "$DST_REGISTRY_CLANG" "$version" || echo "WARNING: Failed to sync ${version}"
-  done
-fi
-
-# Process android images
-if [[ "$PROJECT" == "all" || "$PROJECT" == "ddk" ]]; then
-  echo "Processing android (ddk) images..."
-  if [[ -n "$TAG_FILTER" ]]; then
-    android_name_array=("$TAG_FILTER")
-  else
-    android_names=$(jq -r '.android[].name' "$MAPPING_FILE")
-    IFS=$'\n' read -d '' -r -a android_name_array <<< "$android_names" || true
-  fi
-
-  for name in "${android_name_array[@]}"; do
-    echo "[Android] ${name}"
-    sync_image "$SRC_REGISTRY_DDK" "$DST_REGISTRY_DDK" "$name" || echo "WARNING: Failed to sync ${name}"
-  done
-fi
-
-# Process android images (ddk-min)
-if [[ "$PROJECT" == "all" || "$PROJECT" == "ddk-min" ]]; then
-  echo "Processing android (ddk-min) images..."
-  if [[ -n "$TAG_FILTER" ]]; then
-    android_name_array=("$TAG_FILTER")
-  else
-    android_names=$(jq -r '.android[].name' "$MAPPING_FILE")
-    IFS=$'\n' read -d '' -r -a android_name_array <<< "$android_names" || true
-  fi
-
-  for name in "${android_name_array[@]}"; do
-    echo "[Android-Min] ${name}"
-    sync_image "$SRC_REGISTRY_DDK_MIN" "$DST_REGISTRY_DDK_MIN" "$name" || echo "WARNING: Failed to sync ${name}"
-  done
-fi
-
-echo
-if [[ "$DRY_RUN" == true ]]; then
-  echo "[DRY RUN] All images would be synced from registry to registry."
-else
-  echo "All images have been synced from registry to registry."
+    sync_project "$PROJECT"
 fi

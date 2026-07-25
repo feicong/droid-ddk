@@ -34,7 +34,13 @@ set -euo pipefail
 # Global Variables
 # ============================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLATFORM_LIB="${DROID_DDK_LIB_DIR:-$SCRIPT_DIR/lib}/platform.sh"
+if [[ -n "${DROID_DDK_LIB_DIR:-}" ]]; then
+  PLATFORM_LIB="$DROID_DDK_LIB_DIR/platform.sh"
+elif [[ -f "$SCRIPT_DIR/lib/platform.sh" ]]; then
+  PLATFORM_LIB="$SCRIPT_DIR/lib/platform.sh"
+else
+  PLATFORM_LIB="/usr/local/lib/droid-ddk/platform.sh"
+fi
 if [[ ! -f "$PLATFORM_LIB" ]]; then
   echo "Error: platform library not found: $PLATFORM_LIB" >&2
   exit 1
@@ -90,7 +96,7 @@ Usage: $prog <command> [options] [-- <make-args>]
 Commands:
   list                                        List all pulled Droid DDK images
   list-all                                    List all available Droid DDK targets from repository
-  pull <target>|--target <target>             Pull image $IMAGE_BASE:<target>
+  pull <target>|--target <target>             Pull the configured droid-ddk:<target> image
   build [<target>] [--target <target>] [-- <make-args>]
                                               Run 'make' inside container (for building)
   clean [<target>] [--target <target>]
@@ -102,7 +108,7 @@ Commands:
   update                                      Update dddk and its platform library
 
 Options:
-  --target, -t   image tag like 'android12-5.10'
+  --target, -t   image tag like 'android17-6.18'
                  (Priority: command arg > .droid-ddk-version file > DROID_DDK_TARGET env)
   --env, -e      pass environment variable (can be used multiple times)
                  Example: --env CONFIG_FOO=y -e CONFIG_BAR=n
@@ -117,23 +123,23 @@ Target Resolution:
 Examples:
   $prog list
   $prog list-all
-  $prog pull android12-5.10
-  $prog pull --target android12-5.10
-  $prog build android12-5.10 -- CFLAGS=-O2
-  $prog build --target android12-5.10 -- CFLAGS=-O2
-  $prog clean -t android12-5.10
-  $prog compdb android12-5.10
-  $prog shell android12-5.10
+  $prog pull android17-6.18
+  $prog pull --target android17-6.18
+  $prog build android17-6.18 -- CFLAGS=-O2
+  $prog build --target android17-6.18 -- CFLAGS=-O2
+  $prog clean -t android17-6.18
+  $prog compdb android17-6.18
+  $prog shell android17-6.18
   $prog update
 
   # Using environment variables:
-  $prog build android12-5.10 --env CONFIG_FOO=y -e CONFIG_BAR=n
-  $prog shell -t android12-5.10 --env DEBUG=1
+  $prog build android17-6.18 --env CONFIG_FOO=y -e CONFIG_BAR=n
+  $prog shell -t android17-6.18 --env DEBUG=1
 
   # Using .droid-ddk-version file:
-  echo "android12-5.10" > .droid-ddk-version
-  $prog build    # Will use android12-5.10 from .droid-ddk-version
-  $prog clean    # Will use android12-5.10 from .droid-ddk-version
+  echo "android17-6.18" > .droid-ddk-version
+  $prog build    # Will use android17-6.18 from .droid-ddk-version
+  $prog clean    # Will use android17-6.18 from .droid-ddk-version
 EOF
 }
 
@@ -364,7 +370,7 @@ get_target_from_version_file() {
 #   $@ - command and arguments (first arg is command name)
 # Sets globals:
 #   CMD - the command name (e.g., build, clean, shell)
-#   TARGET - the build target (e.g., android12-5.10)
+#   TARGET - the build target (e.g., android17-6.18)
 #   MAKE_ARGS - array of additional make arguments
 parse_args() {
   CMD=$1
@@ -493,7 +499,7 @@ local_list() {
 
 # Get the corresponding clang version for a given Android target
 # Args:
-#   $1 - Android target name (e.g., android12-5.10)
+#   $1 - Android target name (e.g., android17-6.18)
 # Returns:
 #   Echoes the clang version string (e.g., clang-r416183b)
 # Exit codes:
@@ -757,24 +763,11 @@ local_compdb() {
 
   # Update or create settings.json
   if [[ -f "$settings_file" ]]; then
-    # File exists, update it
-    if command -v jq &> /dev/null; then
-      # Use jq if available for proper JSON manipulation
-      local temp_file
-      temp_file=$(mktemp)
-      jq --arg path "$clangd_path" '.["clangd.path"] = $path' "$settings_file" > "$temp_file" && mv "$temp_file" "$settings_file"
-      echo "Updated clangd.path in $settings_file"
-    else
-      # Fallback: simple sed-based update
-      if grep -q '"clangd.path"' "$settings_file"; then
-        sed -i "s|\"clangd.path\"[[:space:]]*:[[:space:]]*\"[^\"]*\"|\"clangd.path\": \"$clangd_path\"|g" "$settings_file"
-        echo "Updated clangd.path in $settings_file"
-      else
-        # Add clangd.path entry before the closing brace
-        sed -i "s|}$|,\n  \"clangd.path\": \"$clangd_path\"\n}|" "$settings_file"
-        echo "Added clangd.path to $settings_file"
-      fi
-    fi
+    local temp_file
+    temp_file=$(mktemp)
+    jq --arg path "$clangd_path" '.["clangd.path"] = $path' "$settings_file" > "$temp_file"
+    mv "$temp_file" "$settings_file"
+    echo "Updated clangd.path in $settings_file"
   else
     # File doesn't exist, create new one
     cat > "$settings_file" <<EOF
@@ -879,68 +872,61 @@ cmd_list_all() {
   echo "Available Targets (from local mapping.json):"
   echo "---------------------------------------------"
 
-  # Check if jq is available
-  if command -v jq &> /dev/null; then
-    jq -r '.android[] | .name' "$DROID_DDK_MAPPING_JSON" | sed 's/^/  /'
-  else
-    # Fallback: simple grep-based parsing if jq is not available
-    grep -o '"name": "[^"]*"' "$DROID_DDK_MAPPING_JSON" | cut -d'"' -f4 | sed 's/^/  /'
+  ensure_dependency jq
+  jq -r '[.matrix[] | select((.platforms // []) | length > 0) | .android] | unique[]' \
+    "$DROID_DDK_MAPPING_JSON" | sed 's/^/  /'
+}
+
+install_update_file() {
+  local source_file="$1"
+  local destination="$2"
+
+  if install -m 0755 "$source_file" "$destination" 2>/dev/null; then
+    return
   fi
+  echo "Need sudo permission to update $destination"
+  sudo install -m 0755 "$source_file" "$destination"
 }
 
 update_self() {
   local script_path
-  script_path=$(command -v ddk 2>/dev/null || echo "")
-  if [[ -z "$script_path" ]]; then
-    echo "Error: cannot find ddk script location" >&2
-    return 1
-  fi
-
+  script_path="${BASH_SOURCE[0]}"
   script_path=$(readlink -f "$script_path" 2>/dev/null || realpath "$script_path" 2>/dev/null || echo "$script_path")
 
-  # Determine download URL based on source
-  local download_url
+  local script_url
+  local platform_url
   case "$SOURCE" in
     cnb)
-      download_url="https://cnb.cool/Ylarod/ddk/-/git/raw/main/scripts/ddk?download=true"
+      script_url="$REPO_CNB/scripts/dddk?download=true"
+      platform_url="$REPO_CNB/scripts/lib/platform.sh?download=true"
       ;;
     github|docker|*)
-      download_url="https://raw.githubusercontent.com/Ylarod/ddk/main/scripts/ddk"
+      script_url="$REPO_GITHUB/scripts/dddk"
+      platform_url="$REPO_GITHUB/scripts/lib/platform.sh"
       ;;
   esac
 
-  echo "Updating ddk script at: $script_path"
-  echo "Downloading from: $download_url"
+  echo "Updating dddk at: $script_path"
+  echo "Updating platform library at: $PLATFORM_LIB"
 
-  local temp_file
-  temp_file=$(mktemp)
-  # Setup trap to cleanup temp file on exit/interrupt
-  trap 'rm -f "$temp_file"' INT TERM
-
-  if curl -fsSL "$download_url" -o "$temp_file"; then
-    if mv -f "$temp_file" "$script_path" 2>/dev/null && chmod 755 "$script_path" 2>/dev/null; then
-      echo "Successfully updated ddk script"
-      trap - INT TERM  # Clear trap on success
-      return 0
-    else
-      echo "Need sudo permission to update $script_path"
-      if sudo mv -f "$temp_file" "$script_path" && sudo chmod 755 "$script_path"; then
-        echo "Successfully updated ddk script"
-        trap - INT TERM  # Clear trap on success
-        return 0
-      else
-        rm -f "$temp_file"
-        trap - INT TERM  # Clear trap on failure
-        echo "Error: failed to update ddk script" >&2
-        return 1
-      fi
-    fi
-  else
-    rm -f "$temp_file"
-    trap - INT TERM  # Clear trap on failure
-    echo "Error: failed to download latest ddk script" >&2
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  if ! curl -fsSL "$script_url" -o "$temp_dir/dddk" || \
+     ! curl -fsSL "$platform_url" -o "$temp_dir/platform.sh"; then
+    rm -rf "$temp_dir"
+    echo "Error: failed to download dddk update" >&2
     return 1
   fi
+
+  if ! install_update_file "$temp_dir/platform.sh" "$PLATFORM_LIB" || \
+     ! install_update_file "$temp_dir/dddk" "$script_path"; then
+    rm -rf "$temp_dir"
+    echo "Error: failed to install dddk update" >&2
+    return 1
+  fi
+
+  rm -rf "$temp_dir"
+  echo "Successfully updated dddk"
 }
 
 update_mapping() {
@@ -957,7 +943,7 @@ update_mapping() {
 cmd_update() {
   local update_success=true
 
-  # Update ddk script
+  # Update dddk script
   if ! update_self; then
     update_success=false
   fi
@@ -981,7 +967,7 @@ cmd_pull() {
 
   local image="$IMAGE_BASE:${TARGET}"
   echo "Pulling image: $image"
-  docker pull "$image"
+  docker pull --platform "$DOCKER_PLATFORM" "$image"
 }
 
 cmd_build() {
@@ -1056,6 +1042,11 @@ main() {
 
   # Parse command and arguments
   parse_args "$@"
+
+  case "$CMD" in
+    list-all|update) ;;
+    *) resolve_docker_platform ;;
+  esac
 
   # Handle commands that don't need TARGET
   case "$CMD" in

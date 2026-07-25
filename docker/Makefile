@@ -28,7 +28,7 @@ endif
 PLAT ?= $(if $(filter linux-arm64,$(HOST_PLATFORM)),linux/arm64,linux/amd64)
 PLATFORMS ?= $(PLAT)
 
-MATRIX := $(shell jq -r --arg platform "$(HOST_PLATFORM)" '.matrix[] | select(.platforms | index($$platform)) | "\(.android):\(.clang):\(.rust // ""):\(.ndk // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
+MATRIX := $(shell jq -r --arg platform "$(HOST_PLATFORM)" --arg version "$(VER)" '.matrix[] | select((.platforms | index($$platform)) and ($$version == "" or .android == $$version)) | "\(.android):\(.clang):\(.rust // ""):\(.ndk // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
 
 BUILDER_IMAGE := $(REG)/droid-ddk-builder:latest
 TOOLCHAIN_IMAGE := $(REG)/droid-ddk-toolchain
@@ -42,7 +42,7 @@ else
   BUILD_OUTPUT := --platform $(PLAT) --load
 endif
 
-.PHONY: list builder toolchains build build-all build-min build-min-all push push-all push-min push-min-all push-toolchains
+.PHONY: list builder check-matrix toolchains build build-all build-min build-min-all push push-all push-min push-min-all push-toolchains
 
 list:
 	@for i in $(MATRIX); do echo $$i; done
@@ -53,7 +53,10 @@ builder:
 	  -f $(ROOT)/docker/ddk-builder/Dockerfile \
 	  -t $(BUILDER_IMAGE) $(ROOT)
 
-toolchains:
+check-matrix:
+	@if [ -z "$(strip $(MATRIX))" ]; then echo "当前宿主平台不支持VER=$(VER)"; exit 2; fi
+
+toolchains: check-matrix
 	@for pair in $(MATRIX); do \
 	  ANDROID=$$(echo $$pair | cut -d: -f1); \
 	  CLANG=$$(echo $$pair | cut -d: -f2); \
@@ -81,7 +84,7 @@ toolchains:
 	  fi; \
 	done
 
-push-toolchains:
+push-toolchains: check-matrix
 	@for pair in $(MATRIX); do \
 	  ANDROID=$${pair%%:*}; \
 	  $(DOCKER) push $(TOOLCHAIN_IMAGE):$$ANDROID || exit $$?; \

@@ -48,6 +48,10 @@ class DockerfileContractTest(unittest.TestCase):
             makefile,
         )
 
+    def test_makefile_can_filter_toolchain_matrix_by_version(self):
+        makefile = (ROOT / "docker/Makefile").read_text()
+        self.assertIn('--arg version "$(VER)"', makefile)
+        self.assertIn('$$version == "" or .android == $$version', makefile)
 
 if __name__ == "__main__":
     unittest.main()

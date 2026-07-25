@@ -1,7 +1,0 @@
-{
-  "image": "mcr.microsoft.com/devcontainers/universal:linux",
-  "features": {},
-  "remoteEnv": {
-    "GIT_LFS_SKIP_SMUDGE": "1"
-  }
-}

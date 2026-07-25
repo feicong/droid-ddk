@@ -91,7 +91,7 @@ def matrix_for_platform(mapping, platform_name, android_ver=None):
 
 
 def ndk_spec(mapping, platform_name, ndk_version):
-    """读取ARM64目标显式指定的SnowNF NDK配置。"""
+    """读取目标宿主平台显式指定的NDK配置。"""
     platform = platform_config(mapping, platform_name)
     if platform.get("toolchainKind") != "android-ndk":
         raise ValueError(f"{platform_name}不使用Android NDK")
@@ -776,12 +776,16 @@ def cmd_setup_toolchain(args):
 def cmd_setup_src(args):
     mapping = load_mapping(args.map_file)
     ensure_droid_ddk_root()
-    android_list = mapping.get("android", [])
-    if args.android:
-        android_list = [a for a in android_list if a["name"] == args.android]
-        if not android_list:
-            print(f"[x] android 列表中未找到: {args.android}")
-            sys.exit(1)
+    platform_name = resolve_platform(mapping, args)
+    matrix_list = matrix_for_platform(mapping, platform_name, args.android)
+    if args.android and not matrix_list:
+        print(f"[x] {platform_name}不支持android版本: {args.android}")
+        sys.exit(1)
+    supported = {item["android"] for item in matrix_list}
+    android_list = [
+        item for item in mapping.get("android", [])
+        if item["name"] in supported
+    ]
     print("[+] Setup kernel source")
     for item in android_list:
         if args.source == "prebuilt":
@@ -839,7 +843,7 @@ def cmd_build(args):
 
 def cmd_rebuild(args):
     if not DROID_DDK_ROOT.is_dir():
-        print("[x] /opt/droid-ddk is not exist")
+        print(f"[x] {DROID_DDK_ROOT} is not exist")
         sys.exit(1)
 
     mapping = load_mapping(args.map_file)

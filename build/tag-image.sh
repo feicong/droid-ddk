@@ -1,52 +1,46 @@
 #!/usr/bin/env bash
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 set -euo pipefail
 
-# === 配置区域 ===
-# 直接使用 cnb 镜像地址
-IMAGES=(
-  "docker.cnb.cool/ylarod/ddk/ddk"
-  "docker.cnb.cool/ylarod/ddk/ddk-min"
-  "docker.cnb.cool/ylarod/ddk/ddk-toolchain"
-)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAPPING_FILE="${MAPPING_FILE:-$SCRIPT_DIR/../mapping.json}"
+REGISTRY_TYPE="${REGISTRY_TYPE:-docker}"
+DATE_TAG="${DATE_TAG:-$(date +%Y%m%d)}"
+PROJECTS=(droid-ddk droid-ddk-min droid-ddk-toolchain)
 
-DATE="$(date +%Y%m%d)"
+command -v jq >/dev/null 2>&1 || {
+    printf 'Error: jq is required\n' >&2
+    exit 1
+}
+command -v docker >/dev/null 2>&1 || {
+    printf 'Error: docker is required\n' >&2
+    exit 1
+}
+[[ -f "$MAPPING_FILE" ]] || {
+    printf 'Error: mapping file not found: %s\n' "$MAPPING_FILE" >&2
+    exit 1
+}
 
-echo "🧩 Preparing to process images:"
-for image in "${IMAGES[@]}"; do
-  echo "  - $image"
+for project in "${PROJECTS[@]}"; do
+    image=$(jq -er \
+        --arg project "$project" \
+        --arg registry "$REGISTRY_TYPE" \
+        '.registry[$project][$registry]' \
+        "$MAPPING_FILE")
+    found=false
+
+    while IFS= read -r source; do
+        [[ -n "$source" ]] || continue
+        found=true
+        tag="${source##*:}"
+        destination="${image}:${tag}-${DATE_TAG}"
+        printf '%s -> %s\n' "$source" "$destination"
+        docker tag "$source" "$destination"
+        docker push "$source"
+        docker push "$destination"
+    done < <(docker image ls "$image" --format '{{.Repository}}:{{.Tag}}' | awk '$0 !~ /:<none>$/')
+
+    if [[ "$found" == false ]]; then
+        printf 'No local tags found for %s\n' "$image"
+    fi
 done
-
-# === 遍历每个镜像 ===
-for image in "${IMAGES[@]}"; do
-
-  # 获取镜像的所有 tag
-  TAGS=$(docker image ls --format '{{.Repository}}:{{.Tag}}' \
-    | grep "^${image}:" \
-    | grep -v "<none>" || true)
-
-  if [ -z "$TAGS" ]; then
-    echo "⚠️  No local tags found for ${image}"
-    continue
-  fi
-
-  echo
-  echo "🔹 Found tags for ${image}:"
-  echo "$TAGS" | sed 's/^/   - /'
-
-  for full_src in $TAGS; do
-    tag="${full_src##*:}"
-    new_tag="${tag}-${DATE}"
-    full_dst="${image}:${new_tag}"
-
-    echo
-    echo "==> Processing: ${full_src}"
-    echo "     → New: ${full_dst}"
-
-    docker tag "${full_src}" "${full_dst}"
-    docker push "${full_dst}"
-    docker push "${full_src}"
-  done
-done
-
-echo
-echo "✅ All images have been retagged and pushed."

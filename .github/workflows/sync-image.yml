@@ -37,11 +37,13 @@ jobs:
         id: generate
         run: |
           toolchain_matrix=$(jq -c '{include:
-            ([.matrix[].android] | unique | map({project: "ddk-toolchain", tag: .}))
+            ([.matrix[] | select((.platforms // []) | length > 0) | .android] |
+             unique | map({project: "droid-ddk-toolchain", tag: .}))
           }' mapping.json)
           image_matrix=$(jq -c '{include:
-            ([.android[] | {project: "ddk", tag: .name}] +
-             [.android[] | {project: "ddk-min", tag: .name}])
+            ([.matrix[] | select((.platforms // []) | length > 0) | .android] | unique) as $targets |
+            ([$targets[] | {project: "droid-ddk", tag: .}] +
+             [$targets[] | {project: "droid-ddk-min", tag: .}])
           }' mapping.json)
           echo "toolchain_matrix=$toolchain_matrix" >> "$GITHUB_OUTPUT"
           echo "image_matrix=$image_matrix" >> "$GITHUB_OUTPUT"

@@ -1,4 +1,4 @@
-name: Build and Release ddk
+name: Build and Release Droid DDK
 
 on:
   workflow_dispatch:
@@ -21,10 +21,12 @@ jobs:
             const fs = require('fs');
             const raw = fs.readFileSync('mapping.json', 'utf8');
             const data = JSON.parse(raw);
-            const matrix = (data.matrix || []).map(m => ({
-              source_name: m.android,
-              clang_name: m.clang,
-            }));
+            const matrix = (data.matrix || [])
+              .filter(m => (m.platforms || []).includes('linux-amd64'))
+              .map(m => ({
+                source_name: m.android,
+                clang_name: m.clang,
+              }));
             core.setOutput('matrix', JSON.stringify(matrix));
   
   toolchains:
@@ -43,16 +45,21 @@ jobs:
       with:
           submodules: false
 
-    - name: Pull lfs
+    - name: Pull LFS
       run: |
         GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive --depth 1
-        git lfs pull --include="prebuilts/clang/"
-        ls -al prebuilts/clang/
+        git -C prebuilts lfs pull --include="rust/**"
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build image
       run: |
-        cd docker
-        make toolchains PUSH=1
+        make -C docker builder PUSH=1
+        make -C docker toolchains PUSH=1
   
   build:
     needs: ["prepare", "toolchains"]
@@ -75,15 +82,20 @@ jobs:
       with:
           lfs: false
 
-    - name: Pull lfs
+    - name: Pull LFS
       run: |
         GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive --depth 1
-        git lfs pull --include="prebuilts/src/src.${{ matrix.source_name }}.tar.zst"
-        git lfs pull --include="prebuilts/kdir/kdir.${{ matrix.source_name }}.tar.zst"
+        git -C prebuilts lfs pull --include="src/src.${{ matrix.source_name }}.tar.zst"
+        git -C prebuilts lfs pull --include="kdir/linux-amd64/kdir.${{ matrix.source_name }}.tar.zst"
         ls -al prebuilts/src/
-        ls -al prebuilts/kdir/
+        ls -al prebuilts/kdir/linux-amd64/
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build image
       run: |
-        cd docker
-        make build VER=${{ matrix.source_name }} PUSH=1
+        make -C docker build VER=${{ matrix.source_name }} PUSH=1

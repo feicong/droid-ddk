@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -172,6 +173,31 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android16-6.12",
                 "android17-6.18",
             },
+        )
+
+    def test_setup_source_only_processes_enabled_platform_targets(self):
+        args = SimpleNamespace(
+            map_file=ROOT / "mapping.json",
+            host_platform="linux-arm64",
+            android=None,
+            source="download",
+        )
+        with (
+            patch.object(BUILD, "ensure_droid_ddk_root"),
+            patch.object(BUILD, "setup_source_download") as setup_source,
+        ):
+            BUILD.cmd_setup_src(args)
+
+        targets = [call.args[0] for call in setup_source.call_args_list]
+        self.assertEqual(
+            targets,
+            [
+                "android14-5.15",
+                "android14-6.1",
+                "android15-6.6",
+                "android16-6.12",
+                "android17-6.18",
+            ],
         )
 
     def test_amd64_matrix_contains_android14_to_android17(self):
