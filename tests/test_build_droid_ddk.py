@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -63,19 +64,77 @@ class BuildDroidDdkTest(unittest.TestCase):
             expected,
         )
 
-    def test_arm64_matrix_contains_android16_and_android17(self):
+    def test_arm64_r25c_binary_path_uses_snownf_layout(self):
+        expected = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk"
+            / "25.2.9519653"
+            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        )
+        self.assertEqual(
+            BUILD.toolchain_bin(
+                self.mapping, "linux-arm64", "clang-r510928", "r25c"
+            ),
+            expected,
+        )
+
+    def test_amd64_r25c_binary_path_uses_official_layout(self):
+        expected = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk"
+            / "android-ndk-r25c"
+            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        )
+        self.assertEqual(
+            BUILD.toolchain_bin(
+                self.mapping, "linux-amd64", "clang-r510928", "r25c"
+            ),
+            expected,
+        )
+
+    def test_android15_adds_target_host_cflags(self):
+        ndk_bin = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk"
+            / "25.2.9519653"
+            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        )
+        ndk_bin.mkdir(parents=True)
+        target = next(
+            item
+            for item in self.mapping["matrix"]
+            if item["android"] == "android15-6.6"
+        )
+        with patch.dict(os.environ, {"HOSTCFLAGS": ""}):
+            env = BUILD._make_kernel_env(
+                self.mapping,
+                "linux-arm64",
+                target["clang"],
+                ndk_version=target["ndk"],
+                kernel_host_cflags=target["hostCFlags"],
+            )
+        self.assertEqual(
+            env["HOSTCFLAGS"],
+            "-I/usr/include/libdwarf -DUSE_PKCS11_ENGINE",
+        )
+
+    def test_arm64_matrix_contains_android15_to_android17(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-arm64")
         }
-        self.assertEqual(targets, {"android16-6.12", "android17-6.18"})
+        self.assertEqual(
+            targets, {"android15-6.6", "android16-6.12", "android17-6.18"}
+        )
 
-    def test_amd64_matrix_contains_android16_and_android17(self):
+    def test_amd64_matrix_contains_android15_to_android17(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-amd64")
         }
-        self.assertEqual(targets, {"android16-6.12", "android17-6.18"})
+        self.assertEqual(
+            targets, {"android15-6.6", "android16-6.12", "android17-6.18"}
+        )
 
     def test_extract_archive_supports_official_ndk_zip(self):
         root = Path(self.temp_dir.name)

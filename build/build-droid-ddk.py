@@ -402,7 +402,14 @@ def kernel_make_command(env, args):
     return f"{prefix} {args}"
 
 
-def _make_kernel_env(mapping, platform_name, clang_version, rust_version=None, ndk_version=None):
+def _make_kernel_env(
+    mapping,
+    platform_name,
+    clang_version,
+    rust_version=None,
+    ndk_version=None,
+    kernel_host_cflags=None,
+):
     """构造内核编译所需的环境变量"""
     platform = platform_config(mapping, platform_name)
     clang_bin = toolchain_bin(mapping, platform_name, clang_version, ndk_version)
@@ -421,7 +428,9 @@ def _make_kernel_env(mapping, platform_name, clang_version, rust_version=None, n
             libclang_path = str(clang_bin.parent / "lib")
         if libclang_path:
             env["LIBCLANG_PATH"] = libclang_path
-        host_cflags = platform.get("hostCFlags")
+        host_cflags = " ".join(
+            filter(None, (platform.get("hostCFlags"), kernel_host_cflags))
+        )
         if host_cflags:
             env["HOSTCFLAGS"] = " ".join(filter(None, (env.get("HOSTCFLAGS"), host_cflags)))
         env.update({
@@ -480,7 +489,17 @@ def _configure_kernel(src_path, out_path_abs, env, lto=None, android_branch=None
         run(kernel_make_command(env, f"O={_quote(out_path_abs)} rustavailable"), cwd=src_path, env=env)
 
 
-def build_kernel_start(mapping, platform_name, clang_version, android_branch, rust_version=None, ndk_version=None, lto=None, build_proc=None):
+def build_kernel_start(
+    mapping,
+    platform_name,
+    clang_version,
+    android_branch,
+    rust_version=None,
+    ndk_version=None,
+    kernel_host_cflags=None,
+    lto=None,
+    build_proc=None,
+):
     """配置并启动内核编译，返回 (Popen, tag) 或 None（已跳过）"""
     out_path = kdir_path(DROID_DDK_ROOT, platform_name, android_branch)
     if out_path.is_dir():
@@ -494,7 +513,14 @@ def build_kernel_start(mapping, platform_name, clang_version, android_branch, ru
 
     print(f"[+] Building {android_branch}")
 
-    env = _make_kernel_env(mapping, platform_name, clang_version, rust_version, ndk_version)
+    env = _make_kernel_env(
+        mapping,
+        platform_name,
+        clang_version,
+        rust_version,
+        ndk_version,
+        kernel_host_cflags,
+    )
     out_path_abs = out_path.resolve()
     out_path.mkdir(parents=True, exist_ok=True)
     _configure_kernel(
@@ -519,7 +545,17 @@ def build_kernel_start(mapping, platform_name, clang_version, android_branch, ru
     return proc, android_branch
 
 
-def build_kernel_modules_prepare(mapping, platform_name, clang_version, android_branch, rust_version=None, ndk_version=None, lto=None, build_proc=None):
+def build_kernel_modules_prepare(
+    mapping,
+    platform_name,
+    clang_version,
+    android_branch,
+    rust_version=None,
+    ndk_version=None,
+    kernel_host_cflags=None,
+    lto=None,
+    build_proc=None,
+):
     """仅执行 modules_prepare（生成精简 kdir）"""
     out_path = kdir_path(DROID_DDK_ROOT, platform_name, android_branch)
     if out_path.is_dir():
@@ -533,7 +569,14 @@ def build_kernel_modules_prepare(mapping, platform_name, clang_version, android_
 
     print(f"[+] modules_prepare {android_branch}")
 
-    env = _make_kernel_env(mapping, platform_name, clang_version, rust_version, ndk_version)
+    env = _make_kernel_env(
+        mapping,
+        platform_name,
+        clang_version,
+        rust_version,
+        ndk_version,
+        kernel_host_cflags,
+    )
     out_path_abs = out_path.resolve()
     out_path.mkdir(parents=True, exist_ok=True)
     _configure_kernel(
@@ -621,6 +664,7 @@ def build_kernels(mapping, platform_name, matrix_list, lto=None, build_proc=None
             android_ver,
             rust_version=rust_ver,
             ndk_version=ndk_ver,
+            kernel_host_cflags=item.get("hostCFlags"),
             lto=lto,
             build_proc=build_proc,
         )
@@ -784,6 +828,7 @@ def cmd_build(args):
                     android_ver,
                     rust_version=rust_ver,
                     ndk_version=item.get("ndk"),
+                    kernel_host_cflags=item.get("hostCFlags"),
                     lto=args.lto,
                     build_proc=args.jobs,
                 )

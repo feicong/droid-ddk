@@ -23,13 +23,20 @@ class MappingContractTest(unittest.TestCase):
         self.assertIn("linux-arm64", matrix["platforms"])
 
     def test_linux_arm64_ndk_r29_is_pinned(self):
-        r29 = MAPPING["platforms"]["linux-arm64"]["ndks"]["r29"]
+        ndks = MAPPING["platforms"]["linux-arm64"]["ndks"]
+        r29 = ndks["r29"]
         self.assertEqual(r29["release"], "0.0.2")
         self.assertEqual(r29["archive"], "android-ndk-r29-linux-aarch64.tar.gz")
         self.assertEqual(r29["sha256"], "48cb104c28e1ede5e1884b0b34d97d28c4df74cd4e8f7628202a4c2c8de78a50")
         self.assertEqual(r29["root"], "r29")
         self.assertEqual(r29["archiveType"], "tar.gz")
         self.assertEqual(r29["bin"], "toolchains/llvm/prebuilt/linux-x86_64/bin")
+
+        r25c = ndks["r25c"]
+        self.assertEqual(r25c["release"], "0.0.1")
+        self.assertEqual(r25c["archiveType"], "tar.gz")
+        self.assertEqual(r25c["root"], "25.2.9519653")
+        self.assertEqual(r25c["sha256"], "cfe49e478cd635e209a3cff2639bdcfb23c6c932ef73d08bdf8ac6cc75f2bc5d")
 
     def test_linux_amd64_uses_official_r29_ndk(self):
         platform = MAPPING["platforms"]["linux-amd64"]
@@ -40,8 +47,22 @@ class MappingContractTest(unittest.TestCase):
         self.assertEqual(r29["root"], "android-ndk-r29")
         self.assertEqual(r29["sha256"], "4abbbcdc842f3d4879206e9695d52709603e52dd68d3c1fff04b3b5e7a308ecf")
 
-    def test_android16_and_android17_use_r29(self):
+        r25c = platform["ndks"]["r25c"]
+        self.assertEqual(r25c["release"], "25.2.9519653")
+        self.assertEqual(r25c["archiveType"], "zip")
+        self.assertEqual(r25c["root"], "android-ndk-r25c")
+        self.assertEqual(r25c["sha256"], "769ee342ea75f80619d985c2da990c48b3d8eaf45f48783a2d48870d04b46108")
+
+    def test_android15_to_android17_select_platform_ndks(self):
         matrix = {item["android"]: item for item in MAPPING["matrix"]}
+        self.assertEqual(matrix["android15-6.6"]["ndk"], "r25c")
+        self.assertEqual(
+            matrix["android15-6.6"]["hostCFlags"],
+            "-DUSE_PKCS11_ENGINE",
+        )
+        self.assertEqual(
+            matrix["android15-6.6"]["platforms"], ["linux-amd64", "linux-arm64"]
+        )
         for target in ("android16-6.12", "android17-6.18"):
             self.assertEqual(matrix[target]["ndk"], "r29")
             self.assertEqual(

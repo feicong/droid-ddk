@@ -54,6 +54,7 @@ toolchains:
 	  NDK_SHA256=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].sha256' $(ROOT)/mapping.json); \
 	  NDK_ROOT=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].root' $(ROOT)/mapping.json); \
 	  NDK_ARCHIVE_TYPE=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].archiveType' $(ROOT)/mapping.json); \
+	  KERNEL_HOSTCFLAGS=$$(jq -r --arg android "$$ANDROID" '.matrix[] | select(.android == $$android) | .hostCFlags // ""' $(ROOT)/mapping.json); \
 	  if [ "$$NDK_URL" = "null" ] || [ "$$NDK_SHA256" = "null" ] || [ "$$NDK_ROOT" = "null" ] || [ "$$NDK_ARCHIVE_TYPE" = "null" ]; then echo "NDK configuration missing for $$NDK on $(HOST_PLATFORM)"; exit 2; fi; \
 	  NDK_ARGS="--build-arg NDK_VERSION=$$NDK --build-arg NDK_URL=$$NDK_URL --build-arg NDK_SHA256=$$NDK_SHA256 --build-arg NDK_ROOT=$$NDK_ROOT --build-arg NDK_ARCHIVE_TYPE=$$NDK_ARCHIVE_TYPE"; \
 	  if [ "$(FORCE)" = "1" ] || ! $(DOCKER) image inspect $(TOOLCHAIN_IMAGE):$$ANDROID >/dev/null 2>&1; then \
@@ -63,6 +64,7 @@ toolchains:
 	      --build-arg CLANG_VER=$$CLANG \
 	      --build-arg RUST_VER=$$RUST \
 	      --build-arg BINDGEN_VER=$(BINDGEN_VER) \
+	      --build-arg KERNEL_HOSTCFLAGS="$$KERNEL_HOSTCFLAGS" \
 	      $$NDK_ARGS \
 	      -f $(ROOT)/docker/ddk-toolchain/Dockerfile \
 	      -t $(TOOLCHAIN_IMAGE):$$ANDROID $(ROOT) || exit $$?; \

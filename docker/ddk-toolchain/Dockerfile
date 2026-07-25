@@ -14,6 +14,7 @@ ARG NDK_URL=https://github.com/SnowNF/ndk-aarch64-linux/releases/download/0.0.2/
 ARG NDK_SHA256=48cb104c28e1ede5e1884b0b34d97d28c4df74cd4e8f7628202a4c2c8de78a50
 ARG NDK_ROOT=r29
 ARG NDK_ARCHIVE_TYPE=tar.gz
+ARG KERNEL_HOSTCFLAGS=""
 
 ENV DROID_DDK_ROOT=/opt/droid-ddk \
     RUSTUP_HOME=/opt/droid-ddk/.rustup \
@@ -70,6 +71,7 @@ ENV CLANG_PATH=/opt/droid-ddk/toolchain/bin \
     ARCH=arm64 \
     LLVM=1 \
     LLVM_IAS=1 \
+    HOSTCFLAGS="-I/usr/include/libdwarf ${KERNEL_HOSTCFLAGS}" \
     LIBCLANG_PATH=/opt/droid-ddk/toolchain/libclang \
     PATH=/opt/droid-ddk/bin:/opt/droid-ddk/toolchain/bin:/opt/droid-ddk/rust/${RUST_VER}/bin:/opt/droid-ddk/.cargo/bin:$PATH
 

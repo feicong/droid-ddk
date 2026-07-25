@@ -22,6 +22,16 @@
       "artifactDir": "linux-amd64",
       "toolchainKind": "android-ndk",
       "ndks": {
+        "r25c": {
+          "release": "25.2.9519653",
+          "version": "r25c",
+          "archive": "android-ndk-r25c-linux.zip",
+          "archiveType": "zip",
+          "url": "https://dl.google.com/android/repository/android-ndk-r25c-linux.zip",
+          "sha256": "769ee342ea75f80619d985c2da990c48b3d8eaf45f48783a2d48870d04b46108",
+          "root": "android-ndk-r25c",
+          "bin": "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        },
         "r29": {
           "release": "29.0.14206865",
           "version": "r29",
@@ -43,6 +53,16 @@
       "artifactDir": "linux-arm64",
       "toolchainKind": "android-ndk",
       "ndks": {
+        "r25c": {
+          "release": "0.0.1",
+          "version": "r25c",
+          "archive": "android-ndk-r25c-aarch64-linux.tgz",
+          "archiveType": "tar.gz",
+          "url": "https://github.com/SnowNF/ndk-aarch64-linux/releases/download/0.0.1/android-ndk-r25c-aarch64-linux.tgz",
+          "sha256": "cfe49e478cd635e209a3cff2639bdcfb23c6c932ef73d08bdf8ac6cc75f2bc5d",
+          "root": "25.2.9519653",
+          "bin": "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        },
         "r29": {
           "release": "0.0.2",
           "version": "r29",
@@ -104,7 +124,7 @@
     { "android": "android13-5.15", "clang": "clang-r450784e", "rust": null, "platforms": [] },
     { "android": "android14-5.15", "clang": "clang-r487747c", "rust": null, "platforms": [] },
     { "android": "android14-6.1",  "clang": "clang-r487747c", "rust": null, "platforms": [] },
-    { "android": "android15-6.6",  "clang": "clang-r510928", "rust": null, "platforms": [] },
+    { "android": "android15-6.6",  "clang": "clang-r510928", "rust": null, "ndk": "r25c", "hostCFlags": "-DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android16-6.12", "clang": "clang-r536225", "rust": "rust-1.82.0", "ndk": "r29", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android17-6.18", "clang": "clang-r584948c", "rust": "rust-1.91.1", "ndk": "r29", "platforms": ["linux-amd64", "linux-arm64"] }
   ]
