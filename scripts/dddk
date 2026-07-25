@@ -453,7 +453,7 @@ local_list() {
     if [[ "$toolchain_kind" == "aosp-clang" ]]; then
       toolchain_dir="$DROID_DDK_ROOT/clang/$clang/bin"
     else
-      toolchain_dir=$(get_ndk_bin)
+      toolchain_dir=$(get_ndk_bin "$android")
     fi
     local src_exists=false
     local kdir_exists=false
@@ -563,11 +563,12 @@ get_ndk_bin() {
 #   Call restore_local_env() after use to cleanup
 setup_local_env() {
   local target=$1
-  local clang rust toolchain_kind
+  local clang rust toolchain_kind rust_kind
 
   clang=$(get_clang_for_target "$target")
   rust=$(get_rust_for_target "$target")
   toolchain_kind=$(get_platform_toolchain_kind)
+  rust_kind=$(jq -r --arg platform "$DROID_DDK_PLATFORM" '.platforms[$platform].rust.kind // empty' "$DROID_DDK_MAPPING_JSON")
 
   # Backup PATH
   export DROID_DDK_ORIGINAL_PATH="$PATH"
@@ -582,7 +583,7 @@ setup_local_env() {
   export PATH="$CLANG_PATH:$PATH"
 
   # Setup Rust if available
-  if [[ "$toolchain_kind" == "aosp-clang" && -n "$rust" ]]; then
+  if [[ "$rust_kind" == "aosp-prebuilt" && -n "$rust" ]]; then
     export RUST_PATH="$DROID_DDK_ROOT/rust/$rust/bin"
     if [[ -d "$RUST_PATH" ]]; then
       export PATH="$RUST_PATH:$PATH"

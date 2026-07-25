@@ -49,15 +49,13 @@ toolchains:
 	  CLANG=$$(echo $$pair | cut -d: -f2); \
 	  RUST=$$(echo $$pair | cut -d: -f3); \
 	  NDK=$$(echo $$pair | cut -d: -f4); \
-	  NDK_ARGS=""; \
-	  if [ "$(HOST_PLATFORM)" = "linux-arm64" ]; then \
-	    if [ -z "$$NDK" ]; then echo "NDK not found for $$ANDROID"; exit 2; fi; \
-	    NDK_URL=$$(jq -r --arg ndk "$$NDK" '.platforms["linux-arm64"].ndks[$$ndk].url' $(ROOT)/mapping.json); \
-	    NDK_SHA256=$$(jq -r --arg ndk "$$NDK" '.platforms["linux-arm64"].ndks[$$ndk].sha256' $(ROOT)/mapping.json); \
-	    NDK_ROOT=$$(jq -r --arg ndk "$$NDK" '.platforms["linux-arm64"].ndks[$$ndk].root' $(ROOT)/mapping.json); \
-	    if [ "$$NDK_URL" = "null" ] || [ "$$NDK_SHA256" = "null" ] || [ "$$NDK_ROOT" = "null" ]; then echo "NDK configuration missing for $$NDK"; exit 2; fi; \
-	    NDK_ARGS="--build-arg NDK_VERSION=$$NDK --build-arg NDK_URL=$$NDK_URL --build-arg NDK_SHA256=$$NDK_SHA256 --build-arg NDK_ROOT=$$NDK_ROOT"; \
-	  fi; \
+	  if [ -z "$$NDK" ]; then echo "NDK not found for $$ANDROID on $(HOST_PLATFORM)"; exit 2; fi; \
+	  NDK_URL=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].url' $(ROOT)/mapping.json); \
+	  NDK_SHA256=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].sha256' $(ROOT)/mapping.json); \
+	  NDK_ROOT=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].root' $(ROOT)/mapping.json); \
+	  NDK_ARCHIVE_TYPE=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].archiveType' $(ROOT)/mapping.json); \
+	  if [ "$$NDK_URL" = "null" ] || [ "$$NDK_SHA256" = "null" ] || [ "$$NDK_ROOT" = "null" ] || [ "$$NDK_ARCHIVE_TYPE" = "null" ]; then echo "NDK configuration missing for $$NDK on $(HOST_PLATFORM)"; exit 2; fi; \
+	  NDK_ARGS="--build-arg NDK_VERSION=$$NDK --build-arg NDK_URL=$$NDK_URL --build-arg NDK_SHA256=$$NDK_SHA256 --build-arg NDK_ROOT=$$NDK_ROOT --build-arg NDK_ARCHIVE_TYPE=$$NDK_ARCHIVE_TYPE"; \
 	  if [ "$(FORCE)" = "1" ] || ! $(DOCKER) image inspect $(TOOLCHAIN_IMAGE):$$ANDROID >/dev/null 2>&1; then \
 	    echo "==> Building $(TOOLCHAIN_IMAGE):$$ANDROID for $(if $(filter 1,$(PUSH)),$(PLATFORMS),$(PLAT))"; \
 	    DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build $(BUILD_OUTPUT) \

@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANGUAGE=C.UTF-8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git git-lfs wget curl ca-certificates tar xz-utils \
+    git git-lfs wget curl ca-certificates tar unzip xz-utils \
     build-essential bc bison flex python3 clang-22 llvm-22 lld \
     libelf-dev libssl-dev libdwarf-dev libdw-dev cpio \
     dwarves rsync python3 device-tree-compiler \
@@ -32,5 +32,3 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 ENV LIBCLANG_PATH=/usr/lib/llvm-22/lib \
     HOSTCFLAGS=-I/usr/include/libdwarf
-
-# Keep default entrypoint/cmd from base image (code-server already included)

@@ -12,6 +12,7 @@ import sys
 import tarfile
 import threading
 import urllib.request
+import zipfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -173,16 +174,27 @@ def download_verified(url, destination, expected_sha256):
         raise RuntimeError(f"NDK SHA-256不匹配：期望{expected_sha256}，实际{actual}")
 
 
-def extract_archive(archive, destination):
+def extract_archive(archive, destination, archive_type):
     destination = destination.resolve()
-    with tarfile.open(archive, "r:gz") as tar:
-        members = tar.getmembers()
+    if archive_type == "zip":
+        with zipfile.ZipFile(archive) as package:
+            members = package.infolist()
+            for member in members:
+                candidate = (destination / member.filename).resolve()
+                if not candidate.is_relative_to(destination):
+                    raise RuntimeError(f"归档包含越界路径：{member.filename}")
+            package.extractall(destination)
+        return
+    if archive_type != "tar.gz":
+        raise ValueError(f"不支持的NDK归档格式：{archive_type}")
+    with tarfile.open(archive, "r:gz") as package:
+        members = package.getmembers()
         for member in members:
             candidate = (destination / member.name).resolve()
             if not candidate.is_relative_to(destination):
                 raise RuntimeError(f"归档包含越界路径：{member.name}")
         for member in members:
-            tar.extract(member, destination)
+            package.extract(member, destination)
 
 
 def setup_ndk(mapping, platform_name, ndk_version):
@@ -193,6 +205,7 @@ def setup_ndk(mapping, platform_name, ndk_version):
         "release": spec["release"],
         "url": spec["url"],
         "sha256": spec["sha256"],
+        "archiveType": spec["archiveType"],
     }
     if marker.is_file():
         try:
@@ -210,7 +223,7 @@ def setup_ndk(mapping, platform_name, ndk_version):
         download_dir.mkdir(parents=True, exist_ok=True)
         print(f"[+] Download NDK from {spec['url']}")
         download_verified(spec["url"], archive, spec["sha256"])
-        extract_archive(archive, dest.parent)
+        extract_archive(archive, dest.parent, spec["archiveType"])
     finally:
         archive.unlink(missing_ok=True)
     if not dest.is_dir():
@@ -404,6 +417,8 @@ def _make_kernel_env(mapping, platform_name, clang_version, rust_version=None, n
                 path_parts.append(str(rust_bin))
     else:
         libclang_path = platform.get("libclangPath")
+        if platform_name == "linux-amd64":
+            libclang_path = str(clang_bin.parent / "lib")
         if libclang_path:
             env["LIBCLANG_PATH"] = libclang_path
         host_cflags = platform.get("hostCFlags")
@@ -421,7 +436,7 @@ def _make_kernel_env(mapping, platform_name, clang_version, rust_version=None, n
             "HOSTCC": str(clang_bin / "clang"),
             "HOSTCXX": str(clang_bin / "clang++"),
         })
-        if rust_version:
+        if rust_version and platform_name == "linux-arm64":
             rust_tools = arm64_rust_tools(mapping, platform_name, rust_version)
             env.update(rust_tools["env"])
             path_parts.append(str(DROID_DDK_ROOT / ".cargo" / "bin"))
@@ -431,6 +446,11 @@ def _make_kernel_env(mapping, platform_name, clang_version, rust_version=None, n
                 "BINDGEN": str(rust_tools["bindgen"]),
                 "RUST_LIB_SRC": str(rust_tools["rust_src"]),
             })
+        elif rust_version:
+            rust_bin = (DROID_DDK_ROOT / "rust" / rust_version / "bin").resolve()
+            if not rust_bin.is_dir():
+                raise RuntimeError(f"Rust工具链目录不存在：{rust_bin}")
+            path_parts.append(str(rust_bin))
     path_parts.append(env["PATH"])
     env["PATH"] = ":".join(path_parts)
     env["CROSS_COMPILE"] = "aarch64-linux-gnu-"
@@ -483,7 +503,7 @@ def build_kernel_start(mapping, platform_name, clang_version, android_branch, ru
         env,
         lto=lto,
         android_branch=android_branch,
-        require_rust=platform_name == "linux-arm64" and rust_version is not None,
+        require_rust=rust_version is not None,
     )
 
     if build_proc is None:
@@ -522,7 +542,7 @@ def build_kernel_modules_prepare(mapping, platform_name, clang_version, android_
         env,
         lto=lto,
         android_branch=android_branch,
-        require_rust=platform_name == "linux-arm64" and rust_version is not None,
+        require_rust=rust_version is not None,
     )
 
     if build_proc is None:
@@ -680,13 +700,20 @@ def cmd_setup_toolchain(args):
     if platform_config(mapping, platform_name)["toolchainKind"] == "android-ndk":
         ndk_versions = {item.get("ndk") for item in matrix_list}
         if None in ndk_versions:
-            raise ValueError("ARM64目标缺少NDK版本")
+            raise ValueError(f"{platform_name}目标缺少NDK版本")
         for ndk_version in sorted(ndk_versions):
-            print(f"[+] Setup ARM64 NDK {ndk_version}")
+            print(f"[+] Setup {platform_name} NDK {ndk_version}")
             setup_ndk(mapping, platform_name, ndk_version)
-        for item in rust_list:
-            print(f"[+] Setup ARM64 Rust {item['version']}")
-            setup_arm64_rust(mapping, platform_name, item["version"])
+        if platform_name == "linux-arm64":
+            for item in rust_list:
+                print(f"[+] Setup ARM64 Rust {item['version']}")
+                setup_arm64_rust(mapping, platform_name, item["version"])
+        else:
+            for item in rust_list:
+                if args.source == "prebuilt":
+                    setup_rust_prebuilt(item["version"])
+                else:
+                    setup_rust_download(item["version"], item["branch"], item["repo"])
         return
     print("[+] Setup clang")
     for item in clang_list:

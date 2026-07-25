@@ -28,7 +28,17 @@ class MappingContractTest(unittest.TestCase):
         self.assertEqual(r29["archive"], "android-ndk-r29-linux-aarch64.tar.gz")
         self.assertEqual(r29["sha256"], "48cb104c28e1ede5e1884b0b34d97d28c4df74cd4e8f7628202a4c2c8de78a50")
         self.assertEqual(r29["root"], "r29")
+        self.assertEqual(r29["archiveType"], "tar.gz")
         self.assertEqual(r29["bin"], "toolchains/llvm/prebuilt/linux-x86_64/bin")
+
+    def test_linux_amd64_uses_official_r29_ndk(self):
+        platform = MAPPING["platforms"]["linux-amd64"]
+        r29 = platform["ndks"]["r29"]
+        self.assertEqual(platform["toolchainKind"], "android-ndk")
+        self.assertEqual(r29["release"], "29.0.14206865")
+        self.assertEqual(r29["archiveType"], "zip")
+        self.assertEqual(r29["root"], "android-ndk-r29")
+        self.assertEqual(r29["sha256"], "4abbbcdc842f3d4879206e9695d52709603e52dd68d3c1fff04b3b5e7a308ecf")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,12 +48,45 @@ class BuildDroidDdkTest(unittest.TestCase):
             expected,
         )
 
+    def test_amd64_ndk_binary_path_uses_official_layout(self):
+        expected = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk"
+            / "android-ndk-r29"
+            / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+        )
+        self.assertEqual(
+            BUILD.toolchain_bin(
+                self.mapping, "linux-amd64", "clang-r584948c", "r29"
+            ),
+            expected,
+        )
+
     def test_arm64_matrix_contains_android17_only(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-arm64")
         }
         self.assertEqual(targets, {"android17-6.18"})
+
+    def test_amd64_matrix_contains_android17_only(self):
+        targets = {
+            item["android"]
+            for item in BUILD.matrix_for_platform(self.mapping, "linux-amd64")
+        }
+        self.assertEqual(targets, {"android17-6.18"})
+
+    def test_extract_archive_supports_official_ndk_zip(self):
+        root = Path(self.temp_dir.name)
+        archive = root / "ndk.zip"
+        destination = root / "extract"
+        destination.mkdir()
+        with zipfile.ZipFile(archive, "w") as package:
+            package.writestr("android-ndk-r29/toolchains/llvm/bin/clang", "")
+        BUILD.extract_archive(archive, destination, "zip")
+        self.assertTrue(
+            (destination / "android-ndk-r29/toolchains/llvm/bin/clang").is_file()
+        )
 
     def test_kdir_path_contains_host_platform(self):
         self.assertEqual(
