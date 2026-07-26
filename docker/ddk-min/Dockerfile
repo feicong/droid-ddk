@@ -38,11 +38,22 @@ LABEL org.opencontainers.image.title="Droid DDK-min ${ANDROID_VER}" \
 RUN --mount=type=bind,source=prebuilts,target=/mnt/prebuilts,readonly \
     set -eux; \
     artifact_platform="linux-${TARGETARCH}"; \
+    kernel_src="/opt/droid-ddk/src/${ANDROID_VER}"; \
+    kernel_out="/opt/droid-ddk/kdir/${artifact_platform}/${ANDROID_VER}"; \
     mkdir -p "/opt/droid-ddk/src" "/opt/droid-ddk/kdir/${artifact_platform}" /kernel; \
     tar -xf "/mnt/prebuilts/src/src.${ANDROID_VER}.tar.zst" -C /opt/droid-ddk/src; \
     tar -xf "/mnt/prebuilts/kdir-min/${artifact_platform}/kdir.${ANDROID_VER}.tar.zst" -C "/opt/droid-ddk/kdir/${artifact_platform}"; \
-    ln -s "/opt/droid-ddk/src/${ANDROID_VER}" /kernel/src; \
-    ln -s "/opt/droid-ddk/kdir/${artifact_platform}/${ANDROID_VER}" /kernel/out
+    ln -s "$kernel_src" /kernel/src; \
+    ln -s "$kernel_out" /kernel/out; \
+    recorded_src="$(sed -n 's|^include \(.*\)/Makefile$|\1|p' "$kernel_out/Makefile")"; \
+    test -n "$recorded_src"; \
+    case "$recorded_src" in /*) ;; *) exit 2 ;; esac; \
+    if [ "$recorded_src" != "$kernel_src" ]; then \
+      test ! -e "$recorded_src"; \
+      test ! -L "$recorded_src"; \
+      mkdir -p "$(dirname "$recorded_src")"; \
+      ln -s "$kernel_src" "$recorded_src"; \
+    fi
 
 ENV DROID_DDK_ROOT=/opt/droid-ddk \
     CROSS_COMPILE=aarch64-linux-gnu- \

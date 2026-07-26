@@ -40,11 +40,19 @@ class DockerfileContractTest(unittest.TestCase):
         for name in ("ddk", "ddk-min"):
             dockerfile = (ROOT / f"docker/{name}/Dockerfile").read_text()
             self.assertIn(
-                'ln -s "/opt/droid-ddk/src/${ANDROID_VER}" /kernel/src',
+                'kernel_src="/opt/droid-ddk/src/${ANDROID_VER}"',
                 dockerfile,
             )
             self.assertIn(
-                'ln -s "/opt/droid-ddk/kdir/${artifact_platform}/${ANDROID_VER}" /kernel/out',
+                'kernel_out="/opt/droid-ddk/kdir/${artifact_platform}/${ANDROID_VER}"',
+                dockerfile,
+            )
+            self.assertIn(
+                'recorded_src="$(sed -n',
+                dockerfile,
+            )
+            self.assertIn(
+                'ln -s "$kernel_src" "$recorded_src"',
                 dockerfile,
             )
 
