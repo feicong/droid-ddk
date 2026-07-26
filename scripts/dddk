@@ -22,7 +22,7 @@ set -euo pipefail
 #   .ddk-version   - Project-level target version (in project directory)
 #
 # Environment Variables:
-#   DROID_DDK_ROOT   - Local DDK installation path (default: /opt/droid-ddk)
+#   DDK_ROOT   - Local DDK installation path (default: /opt/droid-ddk)
 #   DDK_TARGET - Default build target
 #
 # Target Resolution Priority:
@@ -104,7 +104,7 @@ DROID_DDK_CONFIG_DIR="$HOME/.droid-ddk"
 DROID_DDK_SOURCE_CONFIG="$DROID_DDK_CONFIG_DIR/source"
 DROID_DDK_MODE_CONFIG="$DROID_DDK_CONFIG_DIR/mode"
 DROID_DDK_MAPPING_JSON="$DROID_DDK_CONFIG_DIR/mapping.json"
-DROID_DDK_ROOT="${DROID_DDK_ROOT:-/opt/droid-ddk}"
+DDK_ROOT="${DDK_ROOT:-/opt/droid-ddk}"
 DROID_DDK_MODE=""
 DROID_DDK_PLATFORM="${DROID_DDK_PLATFORM:-}"
 DOCKER_PLATFORM=""
@@ -226,9 +226,9 @@ ensure_config_dir() {
 }
 
 configure_mode() {
-  # Check if DROID_DDK_ROOT exists and configure mode
-  if [[ -d "$DROID_DDK_ROOT" ]] && [[ ! -f "$DROID_DDK_MODE_CONFIG" ]]; then
-    echo "DROID_DDK_ROOT ($DROID_DDK_ROOT) detected. Please select running mode:"
+  # Check if DDK_ROOT exists and configure mode
+  if [[ -d "$DDK_ROOT" ]] && [[ ! -f "$DROID_DDK_MODE_CONFIG" ]]; then
+    echo "DDK_ROOT ($DDK_ROOT) detected. Please select running mode:"
     echo "1. local  (use local DDK installation)"
     echo "2. docker (use Docker containers)"
     echo ""
@@ -498,8 +498,8 @@ parse_args() {
 
 # List available local DDK targets by checking directory existence
 # Reads matrix from mapping.json and verifies:
-#   - $DROID_DDK_ROOT/src/<android-version> exists
-#   - $DROID_DDK_ROOT/clang/<clang-version> exists
+#   - $DDK_ROOT/src/<android-version> exists
+#   - $DDK_ROOT/clang/<clang-version> exists
 # Displays:
 #   - Available targets (both dirs exist): ✓
 #   - Incomplete targets (one dir missing): ✗
@@ -524,16 +524,22 @@ local_list() {
   local incomplete_count=0
 
   for ((i=0; i<matrix_count; i++)); do
-    local android clang toolchain_kind toolchain_dir
+    local android clang enabled toolchain_kind toolchain_dir
+    enabled=$(jq -r --arg platform "$DROID_DDK_PLATFORM" \
+      ".matrix[$i] | ((.platforms // []) | index(\$platform)) != null" \
+      "$DROID_DDK_MAPPING_JSON")
+    if [[ "$enabled" != "true" ]]; then
+      continue
+    fi
     android=$(jq -r ".matrix[$i].android" "$DROID_DDK_MAPPING_JSON")
     clang=$(jq -r ".matrix[$i].clang" "$DROID_DDK_MAPPING_JSON")
     toolchain_kind=$(get_platform_toolchain_kind)
 
     # Check if required directories exist
-    local src_dir="$DROID_DDK_ROOT/src/$android"
-    local kdir_dir="$DROID_DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$android"
+    local src_dir="$DDK_ROOT/src/$android"
+    local kdir_dir="$DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$android"
     if [[ "$toolchain_kind" == "aosp-clang" ]]; then
-      toolchain_dir="$DROID_DDK_ROOT/clang/$clang/bin"
+      toolchain_dir="$DDK_ROOT/clang/$clang/bin"
     else
       toolchain_dir=$(get_ndk_bin "$android")
     fi
@@ -563,10 +569,10 @@ local_list() {
 
   echo ""
   if [[ $available_count -eq 0 ]] && [[ $incomplete_count -eq 0 ]]; then
-    echo "No targets found in $DROID_DDK_ROOT"
+    echo "No targets found in $DDK_ROOT"
     echo "Please ensure the following directories exist:"
-    echo "  - \$DROID_DDK_ROOT/src/<android-version>"
-    echo "  - \$DROID_DDK_ROOT/kdir/$DROID_DDK_PLATFORM/<android-version>"
+    echo "  - \$DDK_ROOT/src/<android-version>"
+    echo "  - \$DDK_ROOT/kdir/$DROID_DDK_PLATFORM/<android-version>"
     echo "  - 对应宿主平台的工具链目录"
   else
     echo "Summary: $available_count available, $incomplete_count incomplete"
@@ -629,14 +635,14 @@ get_ndk_bin() {
     echo "Error: NDK configuration missing for $target on $DROID_DDK_PLATFORM" >&2
     exit 1
   fi
-  printf '%s\n' "$DROID_DDK_ROOT/ndk/$root/$bin"
+  printf '%s\n' "$DDK_ROOT/ndk/$root/$bin"
 }
 
 # Setup local build environment variables
 # Args:
 #   $1 - Android target name
 # Sets exports:
-#   DROID_DDK_ORIGINAL_PATH - backup of original PATH
+#   DDK_ORIGINAL_PATH - backup of original PATH
 #   KDIR - kernel source directory
 #   CLANG_PATH - clang binary directory
 #   PATH - prepends CLANG_PATH to PATH
@@ -653,12 +659,12 @@ setup_local_env() {
   rust_kind=$(jq -r --arg platform "$DROID_DDK_PLATFORM" '.platforms[$platform].rust.kind // empty' "$DROID_DDK_MAPPING_JSON")
 
   # Backup PATH
-  export DROID_DDK_ORIGINAL_PATH="$PATH"
+  export DDK_ORIGINAL_PATH="$PATH"
 
   # Setup DDK environment
-  export KDIR="$DROID_DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$target"
+  export KDIR="$DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$target"
   if [[ "$toolchain_kind" == "aosp-clang" ]]; then
-    export CLANG_PATH="$DROID_DDK_ROOT/clang/$clang/bin"
+    export CLANG_PATH="$DDK_ROOT/clang/$clang/bin"
   else
     export CLANG_PATH="$(get_ndk_bin "$target")"
   fi
@@ -666,7 +672,7 @@ setup_local_env() {
 
   # Setup Rust if available
   if [[ "$rust_kind" == "aosp-prebuilt" && -n "$rust" ]]; then
-    export RUST_PATH="$DROID_DDK_ROOT/rust/$rust/bin"
+    export RUST_PATH="$DDK_ROOT/rust/$rust/bin"
     if [[ -d "$RUST_PATH" ]]; then
       export PATH="$RUST_PATH:$PATH"
     fi
@@ -687,8 +693,8 @@ setup_local_env() {
     export STRIP="$CLANG_PATH/llvm-strip"
     export HOSTCC="$CLANG_PATH/clang"
     export HOSTCXX="$CLANG_PATH/clang++"
-    if [[ -d "$DROID_DDK_ROOT/.cargo/bin" ]]; then
-      export PATH="$DROID_DDK_ROOT/.cargo/bin:$PATH"
+    if [[ -d "$DDK_ROOT/.cargo/bin" ]]; then
+      export PATH="$DDK_ROOT/.cargo/bin:$PATH"
     fi
   fi
 
@@ -731,9 +737,9 @@ setup_local_env() {
 # This ensures the user's environment is not polluted
 restore_local_env() {
   # Restore PATH
-  if [[ -n "${DROID_DDK_ORIGINAL_PATH:-}" ]]; then
-    export PATH="$DROID_DDK_ORIGINAL_PATH"
-    unset DROID_DDK_ORIGINAL_PATH
+  if [[ -n "${DDK_ORIGINAL_PATH:-}" ]]; then
+    export PATH="$DDK_ORIGINAL_PATH"
+    unset DDK_ORIGINAL_PATH
   fi
 
   # Unset DDK-specific variables
@@ -878,7 +884,7 @@ local_shell() {
   setup_local_env "$TARGET"
 
   echo "Environment variables set:"
-  echo "  DROID_DDK_ROOT=$DROID_DDK_ROOT"
+  echo "  DDK_ROOT=$DDK_ROOT"
   echo "  KDIR=$KDIR"
   echo "  CLANG_PATH=$CLANG_PATH"
   if [[ -n "${RUST_PATH:-}" ]]; then
