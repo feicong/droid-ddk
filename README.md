@@ -62,7 +62,7 @@ dddk build --module "$PWD/my-driver" -- -j8
 dddk clean --module "$PWD/my-driver"
 ```
 
-命令行`--target`优先级高于`.ddk-version`，后者优先级高于`DROID_DDK_TARGET`环境变量。通过`--platform linux/amd64`或`--platform linux/arm64`可以显式选择镜像架构。
+命令行`--target`优先级高于`.ddk-version`，后者优先级高于`DDK_TARGET`环境变量。通过`--platform linux/amd64`或`--platform linux/arm64`可以显式选择镜像架构。
 
 ## 致谢
 

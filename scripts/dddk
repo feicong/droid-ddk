@@ -23,12 +23,12 @@ set -euo pipefail
 #
 # Environment Variables:
 #   DROID_DDK_ROOT   - Local DDK installation path (default: /opt/droid-ddk)
-#   DROID_DDK_TARGET - Default build target
+#   DDK_TARGET - Default build target
 #
 # Target Resolution Priority:
 #   1. Command line argument (--target or positional)
 #   2. .ddk-version file in current directory
-#   3. DROID_DDK_TARGET environment variable
+#   3. DDK_TARGET environment variable
 #
 # ============================================================================
 # Platform Functions
@@ -164,7 +164,7 @@ Commands:
 
 Options:
   --target, -t   image tag like 'android17-6.18'
-                 (Priority: command arg > .ddk-version file > DROID_DDK_TARGET env)
+                 (Priority: command arg > .ddk-version file > DDK_TARGET env)
   --env, -e      pass environment variable (can be used multiple times)
                  Example: --env CONFIG_FOO=y -e CONFIG_BAR=n
   --module, -m   external kernel module directory; build, clean and shell
@@ -175,7 +175,7 @@ Options:
 Target Resolution:
   1. Command line argument (--target or positional)
   2. .ddk-version file in current directory
-  3. DROID_DDK_TARGET environment variable
+  3. DDK_TARGET environment variable
 
 Examples:
   $prog list
@@ -1193,12 +1193,12 @@ main() {
       TARGET="$version_file_target"
       echo "Using target from .ddk-version: $TARGET"
     # Then try environment variable fallback
-    elif [[ -n "${DROID_DDK_TARGET:-}" ]]; then
-      TARGET="$DROID_DDK_TARGET"
-      echo "Using target from DROID_DDK_TARGET: $TARGET"
+    elif [[ -n "${DDK_TARGET:-}" ]]; then
+      TARGET="$DDK_TARGET"
+      echo "Using target from DDK_TARGET: $TARGET"
     else
       echo "Error: target is required. Use --target or provide it as the first positional argument," >&2
-      echo "       or create a .ddk-version file, or set DROID_DDK_TARGET environment variable." >&2
+      echo "       or create a .ddk-version file, or set DDK_TARGET environment variable." >&2
       usage
       exit 2
     fi
