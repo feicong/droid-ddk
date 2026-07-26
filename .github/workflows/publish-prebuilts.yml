@@ -1,0 +1,83 @@
+name: Publish Droid DDK Prebuilts
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Android target in mapping.json, for example android17-6.18
+        required: true
+        type: string
+      include_kdir_min:
+        description: Also publish the modules_prepare kdir-min archive
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      TARGET: ${{ inputs.target }}
+      HOST_PLATFORM: linux-amd64
+      INCLUDE_KDIR_MIN: ${{ inputs.include_kdir_min }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          lfs: false
+
+      - name: Build builder image
+        run: make -C docker builder
+
+      - name: Build and pack prebuilts
+        run: |
+          set -euo pipefail
+          docker volume create droid-ddk-prebuilts >/dev/null
+          docker run --rm \
+            -e DROID_DDK_ROOT=/workspace/droid-ddk-work \
+            -e TARGET \
+            -e HOST_PLATFORM \
+            -e INCLUDE_KDIR_MIN \
+            -v "$PWD:/workspace" \
+            -v droid-ddk-prebuilts:/workspace/droid-ddk-work \
+            -w /workspace \
+            docker.io/fsx199/droid-ddk-builder:latest \
+            bash -ceu '
+              python3 build/build-droid-ddk.py setup-toolchain \
+                --host-platform "$HOST_PLATFORM" --android "$TARGET"
+              python3 build/build-droid-ddk.py setup-src \
+                --host-platform "$HOST_PLATFORM" --android "$TARGET"
+              python3 build/build-droid-ddk.py build \
+                --host-platform "$HOST_PLATFORM" --android "$TARGET"
+              build/pack-droid-ddk.sh --src --kdir --rust \
+                --host-platform "$HOST_PLATFORM" --version "$TARGET"
+              if [[ "$INCLUDE_KDIR_MIN" == "true" ]]; then
+                python3 build/build-droid-ddk.py build \
+                  --host-platform "$HOST_PLATFORM" --android "$TARGET" --min
+                build/pack-droid-ddk.sh --kdir-min \
+                  --host-platform "$HOST_PLATFORM" --version "$TARGET"
+              fi
+            '
+          sudo chown -R "$(id -u):$(id -g)" prebuilts
+
+      - name: Publish GitHub Release assets
+        run: |
+          args=(--target "$TARGET" --host-platform "$HOST_PLATFORM" --rust)
+          if [[ "$INCLUDE_KDIR_MIN" == "true" ]]; then
+            args+=(--kdir-min)
+          fi
+          build/publish-prebuilts.sh "${args[@]}"

@@ -2,36 +2,50 @@ name: Build and Release Droid DDK
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 可选；只构建 mapping.json 中的一个 Android 目标
+        required: false
+        default: ""
+        type: string
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: false
       - name: Generate matrix from mapping.json
         id: gen
         uses: actions/github-script@v7
+        env:
+          TARGET: ${{ inputs.target }}
         with:
           script: |
             const fs = require('fs');
             const raw = fs.readFileSync('mapping.json', 'utf8');
             const data = JSON.parse(raw);
+            const requestedTarget = process.env.TARGET.trim();
             const matrix = (data.matrix || [])
               .filter(m => (m.platforms || []).includes('linux-amd64'))
+              .filter(m => !requestedTarget || m.android === requestedTarget)
               .map(m => ({
                 source_name: m.android,
                 clang_name: m.clang,
               }));
+            if (requestedTarget && matrix.length === 0) {
+              core.setFailed(`linux-amd64 does not support target: ${requestedTarget}`);
+              return;
+            }
             core.setOutput('matrix', JSON.stringify(matrix));
   
-  toolchains:
+  builder:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Maximize build space
       run: |
@@ -41,17 +55,13 @@ jobs:
         sudo rm -rf /opt/hostedtoolcache/CodeQL
         sudo docker image prune --all --force
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
           submodules: false
-
-    - name: Pull LFS
-      run: |
-        GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive --depth 1
-        git -C prebuilts lfs pull --include="rust/**"
+          lfs: false
 
     - name: Login to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -59,11 +69,47 @@ jobs:
     - name: Build image
       run: |
         make -C docker builder PUSH=1
-        make -C docker toolchains PUSH=1
+
+  toolchains:
+    needs: [prepare, builder]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+    - name: Maximize build space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+          submodules: false
+          lfs: false
+
+    - name: Download toolchain prebuilts
+      run: |
+        build/fetch-prebuilts.sh \
+          --host-platform linux-amd64 \
+          --target-rust "${{ matrix.source_name }}"
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v4
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Build image
+      run: |
+        make -C docker toolchains VER="${{ matrix.source_name }}" PUSH=1
   
   build:
     needs: ["prepare", "toolchains"]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         include: ${{ fromJson(needs.prepare.outputs.matrix) }}
@@ -78,20 +124,21 @@ jobs:
         sudo docker image prune --all --force
 
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
+          submodules: false
           lfs: false
 
-    - name: Pull LFS
+    - name: Download kernel prebuilts
       run: |
-        GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive --depth 1
-        git -C prebuilts lfs pull --include="src/src.${{ matrix.source_name }}.tar.zst"
-        git -C prebuilts lfs pull --include="kdir/linux-amd64/kdir.${{ matrix.source_name }}.tar.zst"
+        build/fetch-prebuilts.sh \
+          --host-platform linux-amd64 \
+          --target "${{ matrix.source_name }}"
         ls -al prebuilts/src/
         ls -al prebuilts/kdir/linux-amd64/
 
     - name: Login to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}

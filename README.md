@@ -15,21 +15,18 @@ ARM64 Linux 宿主机使用 SnowNF ARM64 NDK，x86_64 Linux 宿主机使用 Goog
 ## 准备仓库
 
 ```bash
-git clone --recurse-submodules https://github.com/feicong/droid-ddk.git
+git clone https://github.com/feicong/droid-ddk.git
 cd droid-ddk
-git lfs install
-git submodule update --init --recursive
 ```
 
-拉取某个版本的源码、当前宿主平台 `kdir`，以及 Android 16/17 使用的 Rust 预构建包：
+预构建包通过 GitHub Release 的稳定 tag `prebuilts-v1` 分发。下载某个版本的源码、当前宿主平台 `kdir`，以及该版本需要的 Rust 预构建包：
 
 ```bash
 VER=android17-6.18
 HOST_PLATFORM=linux-arm64   # x86_64 宿主机填写 linux-amd64
 
-git -C prebuilts lfs pull --include="src/src.${VER}.tar.zst"
-git -C prebuilts lfs pull --include="kdir/${HOST_PLATFORM}/kdir.${VER}.tar.zst"
-git -C prebuilts lfs pull --include="rust/**"
+build/fetch-prebuilts.sh --host-platform "$HOST_PLATFORM" --target "$VER"
+build/fetch-prebuilts.sh --host-platform "$HOST_PLATFORM" --target-rust "$VER"
 ```
 
 ## 构建单个版本
@@ -52,6 +49,8 @@ docker.io/fsx199/droid-ddk:android17-6.18
 精简镜像使用对应的 `prebuilts/kdir-min/<host-platform>` 产物：
 
 ```bash
+build/fetch-prebuilts.sh \
+    --host-platform "$HOST_PLATFORM" --target "$VER" --kdir-min
 make -C docker build-min VER="$VER"
 ```
 
@@ -160,4 +159,3 @@ make -C docker build VER="$VER" PUSH=1
 ## 致谢
 
 项目fork自：Ylarod/ddk
-

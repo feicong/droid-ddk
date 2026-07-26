@@ -11,7 +11,7 @@ on:
 jobs:
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       toolchain-matrix: ${{ steps.generate.outputs.toolchain_matrix }}
       image-matrix: ${{ steps.generate.outputs.image_matrix }}
@@ -19,7 +19,7 @@ jobs:
       has_docker: ${{ steps.check.outputs.has_docker }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: false
 
@@ -54,7 +54,7 @@ jobs:
     name: toolchain:${{ matrix.tag }}
     needs: prepare
     if: needs.prepare.outputs.has_ghcr == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -63,7 +63,7 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.toolchain-matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: false
 
@@ -86,11 +86,11 @@ jobs:
         run: |
           echo "$DOCKERHUB_PASS" | skopeo login docker.io --username "$DOCKERHUB_USER" --password-stdin
 
-      - name: Sync CNB to GitHub
+      - name: Sync Docker Hub to GitHub
         run: |
-          build/sync-image.sh -s cnb -d github -p ${{ matrix.project }} -t ${{ matrix.tag }}
+          build/sync-image.sh -s docker -d github -p ${{ matrix.project }} -t ${{ matrix.tag }}
           if [ -n '${{ github.event.inputs.date }}' ]; then
-            build/sync-image.sh -s cnb -d github -p ${{ matrix.project }} -t ${{ matrix.tag }} --new-date '${{ github.event.inputs.date }}'
+            build/sync-image.sh -s docker -d github -p ${{ matrix.project }} -t ${{ matrix.tag }} --new-date '${{ github.event.inputs.date }}'
           fi
 
       - name: Sync GitHub to Docker Hub
@@ -105,7 +105,7 @@ jobs:
     name: ${{ matrix.project }}:${{ matrix.tag }}
     needs: [prepare, sync-toolchain]
     if: needs.prepare.outputs.has_ghcr == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -114,7 +114,7 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.image-matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: false
 
@@ -137,11 +137,11 @@ jobs:
         run: |
           echo "$DOCKERHUB_PASS" | skopeo login docker.io --username "$DOCKERHUB_USER" --password-stdin
 
-      - name: Sync CNB to GitHub
+      - name: Sync Docker Hub to GitHub
         run: |
-          build/sync-image.sh -s cnb -d github -p ${{ matrix.project }} -t ${{ matrix.tag }}
+          build/sync-image.sh -s docker -d github -p ${{ matrix.project }} -t ${{ matrix.tag }}
           if [ -n '${{ github.event.inputs.date }}' ]; then
-            build/sync-image.sh -s cnb -d github -p ${{ matrix.project }} -t ${{ matrix.tag }} --new-date '${{ github.event.inputs.date }}'
+            build/sync-image.sh -s docker -d github -p ${{ matrix.project }} -t ${{ matrix.tag }} --new-date '${{ github.event.inputs.date }}'
           fi
 
       - name: Sync GitHub to Docker Hub

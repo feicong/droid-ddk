@@ -5,3 +5,5 @@ docker/.dockerignore.*
 !docker/.dockerignore.template
 .pkg
 .cache/
+prebuilts/
+.DS_Store
