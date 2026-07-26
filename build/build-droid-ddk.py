@@ -350,17 +350,39 @@ def arm64_rust_tools(mapping, platform_name, rust_version=None):
 
 # ── rust ───────────────────────────────────────────────
 
-def setup_rust_download(version, branch, repo):
+def _install_prebuilt_bindgen(rust_root, bindgen_version):
+    if not bindgen_version:
+        return
+    cargo = rust_root / "bin" / "cargo"
+    bindgen = rust_root / "bin" / "bindgen"
+    if bindgen.is_file():
+        return
+    if not cargo.is_file():
+        raise RuntimeError(f"Rust预构建缺少cargo：{cargo}")
+    env = os.environ.copy()
+    env["PATH"] = f"{rust_root / 'bin'}:{env['PATH']}"
+    run(
+        f"{_quote(cargo)} install --root {_quote(rust_root)} "
+        f"bindgen-cli --version {_quote(bindgen_version)} --locked",
+        env=env,
+    )
+    if not bindgen.is_file():
+        raise RuntimeError(f"bindgen安装后不存在：{bindgen}")
+
+
+def setup_rust_download(
+    version, branch, repo, archive_path=None, bindgen_version=None
+):
     ver_num = version.removeprefix("rust-")
     dest = DROID_DDK_ROOT / "rust" / version
     if dest.is_dir():
+        _install_prebuilt_bindgen(dest, bindgen_version)
         print(f"[!] {version} already exists, skip")
         return
+    archive_path = archive_path or ver_num
     # platform/prebuilts/rust (旧仓库) 需要额外拼 linux-x86 子路径
     if repo == "platform/prebuilts/rust":
-        archive_path = f"linux-x86/{ver_num}"
-    else:
-        archive_path = ver_num
+        archive_path = f"linux-x86/{archive_path}"
     url = f"https://android.googlesource.com/{repo}/+archive/refs/heads/{branch}/{archive_path}.tar.gz"
     print(f"[+] Download from {url}")
     tarball = f"{version}.tar.gz"
@@ -368,10 +390,25 @@ def setup_rust_download(version, branch, repo):
     dest.mkdir(parents=True, exist_ok=True)
     run(f"tar xzf {tarball} -C {dest}")
     os.remove(tarball)
+    _install_prebuilt_bindgen(dest, bindgen_version)
 
 
 def setup_rust_prebuilt(version):
     extract_prebuilt("rust", version, DROID_DDK_ROOT / "rust")
+
+
+def prebuilt_rust_tools(rust_version):
+    rust_root = DROID_DDK_ROOT / "rust" / rust_version
+    tools = {
+        "rustc": rust_root / "bin" / "rustc",
+        "rustfmt": rust_root / "bin" / "rustfmt",
+        "bindgen": rust_root / "bin" / "bindgen",
+        "rust_src": rust_root / "lib" / "rustlib" / "src" / "rust" / "library",
+    }
+    missing = [str(path) for path in tools.values() if not path.exists()]
+    if missing:
+        raise RuntimeError(f"x86_64 Rust工具链不完整：{', '.join(missing)}")
+    return tools
 
 
 # ── src ────────────────────────────────────────────────
@@ -479,10 +516,14 @@ def _make_kernel_env(
                 "RUST_LIB_SRC": str(rust_tools["rust_src"]),
             })
         elif rust_version:
-            rust_bin = (DROID_DDK_ROOT / "rust" / rust_version / "bin").resolve()
-            if not rust_bin.is_dir():
-                raise RuntimeError(f"Rust工具链目录不存在：{rust_bin}")
-            path_parts.append(str(rust_bin))
+            rust_tools = prebuilt_rust_tools(rust_version)
+            path_parts.append(str(rust_tools["rustc"].parent))
+            env.update({
+                "RUSTC": str(rust_tools["rustc"]),
+                "RUSTFMT": str(rust_tools["rustfmt"]),
+                "BINDGEN": str(rust_tools["bindgen"]),
+                "RUST_LIB_SRC": str(rust_tools["rust_src"]),
+            })
     path_parts.append(env["PATH"])
     env["PATH"] = ":".join(path_parts)
     env["CROSS_COMPILE"] = "aarch64-linux-gnu-"
@@ -765,6 +806,9 @@ def cmd_setup_toolchain(args):
         mapping, platform_name, args.android
     )
     if platform_config(mapping, platform_name)["toolchainKind"] == "android-ndk":
+        bindgen_version = (
+            platform_config(mapping, platform_name).get("rust", {}).get("bindgenVersion")
+        )
         ndk_versions = {item.get("ndk") for item in matrix_list}
         if None in ndk_versions:
             raise ValueError(f"{platform_name}目标缺少NDK版本")
@@ -780,7 +824,13 @@ def cmd_setup_toolchain(args):
                 if args.source == "prebuilt":
                     setup_rust_prebuilt(item["version"])
                 else:
-                    setup_rust_download(item["version"], item["branch"], item["repo"])
+                    setup_rust_download(
+                        item["version"],
+                        item["branch"],
+                        item["repo"],
+                        item.get("archivePath"),
+                        bindgen_version,
+                    )
         return
     print("[+] Setup clang")
     for item in clang_list:
@@ -789,11 +839,20 @@ def cmd_setup_toolchain(args):
         else:
             setup_clang_download(item["branch"], item["version"])
     print("[+] Setup rust")
+    bindgen_version = (
+        platform_config(mapping, platform_name).get("rust", {}).get("bindgenVersion")
+    )
     for item in rust_list:
         if args.source == "prebuilt":
             setup_rust_prebuilt(item["version"])
         else:
-            setup_rust_download(item["version"], item["branch"], item["repo"])
+            setup_rust_download(
+                item["version"],
+                item["branch"],
+                item["repo"],
+                item.get("archivePath"),
+                bindgen_version,
+            )
 
 
 def cmd_setup_src(args):

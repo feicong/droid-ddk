@@ -298,6 +298,73 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertEqual(rust["version"], "1.82.0")
         self.assertEqual(rust["bindgenVersion"], "0.72.1")
 
+    def test_android17_amd64_rust_uses_pinned_aosp_archive(self):
+        spec = next(
+            item
+            for item in self.mapping["rust"]
+            if item["version"] == "rust-1.91.1"
+        )
+        with patch.object(BUILD, "run") as run_mock, patch.object(
+            BUILD.os, "remove"
+        ), patch.object(BUILD, "_install_prebuilt_bindgen") as install_bindgen:
+            BUILD.setup_rust_download(
+                spec["version"],
+                spec["branch"],
+                spec["repo"],
+                spec.get("archivePath"),
+                self.mapping["platforms"]["linux-amd64"]["rust"][
+                    "bindgenVersion"
+                ],
+            )
+        self.assertIn(
+            "/main-kernel-2026/1.91.1.p3.tar.gz",
+            run_mock.call_args_list[0].args[0],
+        )
+        install_bindgen.assert_called_once_with(
+            BUILD.DROID_DDK_ROOT / "rust" / "rust-1.91.1", "0.72.1"
+        )
+
+    def test_prebuilt_bindgen_uses_matching_aosp_rustc(self):
+        rust_root = BUILD.DROID_DDK_ROOT / "rust/rust-1.82.0"
+        rust_bin = rust_root / "bin"
+        rust_bin.mkdir(parents=True)
+        (rust_bin / "cargo").touch()
+
+        def install_bindgen(_command, env=None):
+            self.assertEqual(env["PATH"].split(":", 1)[0], str(rust_bin))
+            (rust_bin / "bindgen").touch()
+
+        with patch.object(BUILD, "run", side_effect=install_bindgen) as run_mock:
+            BUILD._install_prebuilt_bindgen(rust_root, "0.72.1")
+
+        self.assertIn("bindgen-cli --version 0.72.1 --locked", run_mock.call_args.args[0])
+
+    def test_amd64_rust_tools_are_passed_to_kernel_make(self):
+        ndk_bin = (
+            BUILD.DROID_DDK_ROOT
+            / "ndk/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        )
+        ndk_bin.mkdir(parents=True)
+        rust_root = BUILD.DROID_DDK_ROOT / "rust/rust-1.82.0"
+        for relative in ("bin/rustc", "bin/rustfmt", "bin/bindgen"):
+            path = rust_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        rust_src = rust_root / "lib/rustlib/src/rust/library"
+        rust_src.mkdir(parents=True)
+
+        env = BUILD._make_kernel_env(
+            self.mapping,
+            "linux-amd64",
+            "clang-r536225",
+            rust_version="rust-1.82.0",
+            ndk_version="r29",
+        )
+
+        self.assertEqual(env["RUSTC"], str(rust_root / "bin/rustc"))
+        self.assertEqual(env["BINDGEN"], str(rust_root / "bin/bindgen"))
+        self.assertEqual(env["RUST_LIB_SRC"], str(rust_src))
+
     def test_kernel_make_command_passes_rust_tools_as_make_variables(self):
         command = BUILD.kernel_make_command(
             {
