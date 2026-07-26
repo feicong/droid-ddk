@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -171,6 +172,21 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertTrue(extracted.is_symlink())
         self.assertEqual(extracted.readlink(), Path("clang-14"))
         self.assertEqual(extracted.stat().st_mode & 0o111, 0o111)
+
+    def test_extract_archive_supports_pinned_tar_absolute_symlink(self):
+        root = Path(self.temp_dir.name)
+        archive = root / "ndk.tar.gz"
+        destination = root / "extract"
+        destination.mkdir()
+        with tarfile.open(archive, "w:gz") as package:
+            link = tarfile.TarInfo("ndk/sysroot/usr/include/c++/12")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/usr/include/c++/12"
+            package.addfile(link)
+        BUILD.extract_archive(archive, destination, "tar.gz")
+        extracted = destination / "ndk/sysroot/usr/include/c++/12"
+        self.assertTrue(extracted.is_symlink())
+        self.assertEqual(extracted.readlink(), Path("/usr/include/c++/12"))
 
     def test_arm64_matrix_contains_android13_5_15_to_android17(self):
         targets = {

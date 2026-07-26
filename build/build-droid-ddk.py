@@ -217,8 +217,7 @@ def extract_archive(archive, destination, archive_type):
             candidate = (destination / member.name).resolve()
             if not candidate.is_relative_to(destination):
                 raise RuntimeError(f"归档包含越界路径：{member.name}")
-        for member in members:
-            package.extract(member, destination)
+    run(f"tar -xzf {_quote(archive)} -C {_quote(destination)}")
 
 
 def setup_ndk(mapping, platform_name, ndk_version):
