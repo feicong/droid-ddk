@@ -16,7 +16,7 @@ ARG NDK_ROOT=r29
 ARG NDK_ARCHIVE_TYPE=tar.gz
 ARG KERNEL_HOSTCFLAGS=""
 
-ENV DROID_DDK_ROOT=/opt/droid-ddk \
+ENV DDK_ROOT=/opt/droid-ddk \
     RUSTUP_HOME=/opt/droid-ddk/.rustup \
     CARGO_HOME=/opt/droid-ddk/.cargo \
     RUSTUP_NO_SELF_UPDATE=1 \

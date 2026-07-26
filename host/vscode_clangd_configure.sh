@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VSCODE_TEMPLATE_DIR="$SCRIPT_DIR/.vscode"
 DROID_DDK_CONFIG_DIR="$HOME/.droid-ddk"
 DROID_DDK_MAPPING_JSON="$DROID_DDK_CONFIG_DIR/mapping.json"
-DROID_DDK_ROOT="${DROID_DDK_ROOT:-/opt/droid-ddk}"
+DDK_ROOT="${DDK_ROOT:-/opt/droid-ddk}"
 DRY_RUN=false
 
 usage() {
@@ -14,7 +14,7 @@ usage() {
 Usage: $(basename "$0") [--dry-run]
 
 Environment:
-  DROID_DDK_ROOT       Installation path, default: /opt/droid-ddk
+  DDK_ROOT       Installation path, default: /opt/droid-ddk
   DROID_DDK_PLATFORM   linux-amd64 or linux-arm64
 EOF
 }
@@ -67,13 +67,13 @@ toolchain_bin() {
         ndk=$(jq -r ".matrix[$index].ndk" "$DROID_DDK_MAPPING_JSON")
         root=$(jq -r --arg platform "$platform" --arg ndk "$ndk" '.platforms[$platform].ndks[$ndk].root' "$DROID_DDK_MAPPING_JSON")
         bin=$(jq -r --arg platform "$platform" --arg ndk "$ndk" '.platforms[$platform].ndks[$ndk].bin' "$DROID_DDK_MAPPING_JSON")
-        printf '%s\n' "$DROID_DDK_ROOT/ndk/$root/$bin"
+        printf '%s\n' "$DDK_ROOT/ndk/$root/$bin"
         return
     fi
 
     local clang
     clang=$(jq -r ".matrix[$index].clang" "$DROID_DDK_MAPPING_JSON")
-    printf '%s\n' "$DROID_DDK_ROOT/clang/$clang/bin"
+    printf '%s\n' "$DDK_ROOT/clang/$clang/bin"
 }
 
 update_settings() {
@@ -100,7 +100,7 @@ configure_target() {
     local vscode_dir
 
     android=$(jq -r ".matrix[$index].android" "$DROID_DDK_MAPPING_JSON")
-    source_dir="$DROID_DDK_ROOT/src/$android"
+    source_dir="$DDK_ROOT/src/$android"
     clangd_path="$(toolchain_bin "$platform" "$index")/clangd"
     vscode_dir="$source_dir/.vscode"
 
@@ -130,7 +130,7 @@ main() {
 
     require_command jq
     [[ -f "$DROID_DDK_MAPPING_JSON" ]] || fail "run 'dddk update' to create $DROID_DDK_MAPPING_JSON"
-    [[ -d "$DROID_DDK_ROOT" ]] || fail "Droid DDK root not found: $DROID_DDK_ROOT"
+    [[ -d "$DDK_ROOT" ]] || fail "Droid DDK root not found: $DDK_ROOT"
 
     local platform
     local count

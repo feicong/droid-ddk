@@ -55,7 +55,7 @@ RUN --mount=type=bind,source=prebuilts,target=/mnt/prebuilts,readonly \
       ln -s "$kernel_src" "$recorded_src"; \
     fi
 
-ENV DROID_DDK_ROOT=/opt/droid-ddk \
+ENV DDK_ROOT=/opt/droid-ddk \
     CROSS_COMPILE=aarch64-linux-gnu- \
     ARCH=arm64 \
     LLVM=1 \

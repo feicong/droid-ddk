@@ -142,7 +142,7 @@ jobs:
           set -euo pipefail
           docker volume create "$WORK_VOLUME" >/dev/null
           docker run --rm \
-            -e DROID_DDK_ROOT=/workspace/droid-ddk-work \
+            -e DDK_ROOT=/workspace/droid-ddk-work \
             -e ANDROID_TARGET \
             -e RUST_VERSION \
             -e HOST_PLATFORM \

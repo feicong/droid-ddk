@@ -24,11 +24,11 @@ class BuildDroidDdkTest(unittest.TestCase):
     def setUp(self):
         self.mapping = json.loads((ROOT / "mapping.json").read_text())
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.original_root = BUILD.DROID_DDK_ROOT
-        BUILD.DROID_DDK_ROOT = Path(self.temp_dir.name)
+        self.original_root = BUILD.DDK_ROOT
+        BUILD.DDK_ROOT = Path(self.temp_dir.name)
 
     def tearDown(self):
-        BUILD.DROID_DDK_ROOT = self.original_root
+        BUILD.DDK_ROOT = self.original_root
         self.temp_dir.cleanup()
 
     def test_host_platform_normalizes_arm64_aliases(self):
@@ -41,7 +41,7 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_arm64_ndk_binary_path_uses_pinned_layout(self):
         expected = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk"
             / "r29"
             / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -55,7 +55,7 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_arm64_ndk_binary_path_uses_target_selected_r25c(self):
         expected = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk"
             / "25.2.9519653"
             / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -69,7 +69,7 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_amd64_ndk_binary_path_uses_official_layout(self):
         expected = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk"
             / "android-ndk-r29"
             / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -83,7 +83,7 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_amd64_r25c_binary_path_uses_official_layout(self):
         expected = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk"
             / "android-ndk-r25c"
             / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -97,7 +97,7 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_android15_adds_target_host_cflags(self):
         ndk_bin = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk"
             / "25.2.9519653"
             / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -123,7 +123,7 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_android14_6_1_adds_ubuntu_26_host_compatibility_flags(self):
         ndk_bin = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk"
             / "25.2.9519653"
             / "toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -248,7 +248,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         run.assert_called_once_with(
             "git clone https://android.googlesource.com/kernel/common "
             "-b android17-6.18 --depth 1 "
-            f"{BUILD.DROID_DDK_ROOT / 'src/android17-6.18'}"
+            f"{BUILD.DDK_ROOT / 'src/android17-6.18'}"
         )
 
     def test_amd64_matrix_contains_android13_5_15_to_android17(self):
@@ -297,8 +297,8 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_kdir_path_contains_host_platform(self):
         self.assertEqual(
-            BUILD.kdir_path(BUILD.DROID_DDK_ROOT, "linux-arm64", "android17-6.18"),
-            BUILD.DROID_DDK_ROOT / "kdir/linux-arm64/android17-6.18",
+            BUILD.kdir_path(BUILD.DDK_ROOT, "linux-arm64", "android17-6.18"),
+            BUILD.DDK_ROOT / "kdir/linux-arm64/android17-6.18",
         )
 
     def test_arm64_rust_spec_selects_target_toolchain(self):
@@ -331,11 +331,11 @@ class BuildDroidDdkTest(unittest.TestCase):
             run_mock.call_args_list[0].args[0],
         )
         install_bindgen.assert_called_once_with(
-            BUILD.DROID_DDK_ROOT / "rust" / "rust-1.91.1", "0.72.1"
+            BUILD.DDK_ROOT / "rust" / "rust-1.91.1", "0.72.1"
         )
 
     def test_prebuilt_bindgen_uses_matching_aosp_rustc(self):
-        rust_root = BUILD.DROID_DDK_ROOT / "rust/rust-1.82.0"
+        rust_root = BUILD.DDK_ROOT / "rust/rust-1.82.0"
         rust_bin = rust_root / "bin"
         rust_bin.mkdir(parents=True)
         (rust_bin / "cargo").touch()
@@ -351,11 +351,11 @@ class BuildDroidDdkTest(unittest.TestCase):
 
     def test_amd64_rust_tools_are_passed_to_kernel_make(self):
         ndk_bin = (
-            BUILD.DROID_DDK_ROOT
+            BUILD.DDK_ROOT
             / "ndk/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin"
         )
         ndk_bin.mkdir(parents=True)
-        rust_root = BUILD.DROID_DDK_ROOT / "rust/rust-1.82.0"
+        rust_root = BUILD.DDK_ROOT / "rust/rust-1.82.0"
         for relative in ("bin/rustc", "bin/rustfmt", "bin/bindgen"):
             path = rust_root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -405,7 +405,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertNotIn("-e CONFIG_CFI_ICALL_NORMALIZE_INTEGERS", commands)
 
     def test_arm64_bindgen_wrapper_unsets_directory_clang_path(self):
-        cargo_bin = BUILD.DROID_DDK_ROOT / ".cargo/bin"
+        cargo_bin = BUILD.DDK_ROOT / ".cargo/bin"
         cargo_bin.mkdir(parents=True)
         (cargo_bin / "bindgen").write_text("#!/bin/sh\n")
         wrapper = BUILD.ensure_arm64_bindgen_wrapper()

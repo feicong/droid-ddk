@@ -1,93 +1,69 @@
-# Droid DDK Image Builds
+# Droid DDK - dddk
 
-This repository builds ARM64 Android kernel development images by ACK version. All build containers use Ubuntu 26.04.
+`droid-ddk` provides Android ACK external kernel module build images. x86_64 hosts use the official Google x86_64 NDK, ARM64 hosts use the SnowNF ARM64 NDK, and all images use Ubuntu 26.04.
 
-| `VER` | NDK |
-|---|---|
-| `android14-5.15` | r25c |
-| `android14-6.1` | r25c |
-| `android15-6.6` | r25c |
-| `android16-6.12` | r29 |
-| `android17-6.18` | r29 |
+| `dddk` target | ACK source branch | NDK |
+|---|---|---|
+| `android13-5.15` | `android13-5.15-lts` | r25c |
+| `android14-5.15` | `android14-5.15-lts` | r25c |
+| `android14-6.1` | `android14-6.1-lts` | r25c |
+| `android15-6.1` | `android14-6.1-lts` | r25c |
+| `android15-6.6` | `android15-6.6-lts` | r25c |
+| `android16-6.6` | `android15-6.6-lts` | r25c |
+| `android16-6.12` | `android16-6.12-lts` | r29 |
+| `android17-6.18` | `android17-6.18-lts` | r29 |
 
-ARM64 Linux hosts use the SnowNF ARM64 NDK. x86_64 Linux hosts use the official Google x86_64 NDK. `docker/Makefile` selects the toolchain and `kdir` for the current host architecture.
+`android15-6.1` and `android16-6.6` keep the previous ACK generation available for newer Android releases. Select a target that matches the ACK generation and kernel version reported by the device's `uname -r`.
 
-## Prepare the Repository
-
-```bash
-git clone --recurse-submodules https://github.com/feicong/droid-ddk.git
-cd droid-ddk
-git lfs install
-git submodule update --init --recursive
-```
-
-Pull the source, the current host platform's `kdir`, and the Rust prebuilts used by Android 16 and 17:
+## Install `dddk`
 
 ```bash
-VER=android17-6.18
-HOST_PLATFORM=linux-arm64   # Use linux-amd64 on an x86_64 host
-
-git -C prebuilts lfs pull --include="src/src.${VER}.tar.zst"
-git -C prebuilts lfs pull --include="kdir/${HOST_PLATFORM}/kdir.${VER}.tar.zst"
-git -C prebuilts lfs pull --include="rust/**"
+curl -fsSL https://raw.githubusercontent.com/feicong/droid-ddk/main/host/install.sh | sudo bash
 ```
 
-## Build One Version
+Select `docker` mode on first use. Images are published to both `docker.io/fsx199/droid-ddk` and `ghcr.io/feicong/droid-ddk`. Select the `docker` or `github` source; `dddk` automatically pulls the x86_64 or ARM64 image for the host architecture.
 
 ```bash
-VER=android17-6.18
-
-make -C docker builder
-make -C docker toolchains VER="$VER"
-make -C docker build VER="$VER"
+dddk update
+dddk list-all
+dddk pull --target android17-6.18
+dddk list
 ```
 
-The resulting images are:
+## Build a Kernel Module
 
-```text
-docker.io/fsx199/droid-ddk-toolchain:android17-6.18
-docker.io/fsx199/droid-ddk:android17-6.18
+The module directory must contain its source and a Kbuild-compatible Makefile. For example:
+
+```makefile
+obj-m += my_driver.o
 ```
 
-The minimal image uses the matching `prebuilts/kdir-min/<host-platform>` artifact:
+Use the full image to build, clean, or open the build environment:
 
 ```bash
-make -C docker build-min VER="$VER"
+MODULE_DIR="$PWD/my-driver"
+TARGET=android17-6.18
+
+dddk pull --target "$TARGET"
+dddk build --target "$TARGET" --module "$MODULE_DIR"
+dddk build --target "$TARGET" --module "$MODULE_DIR" -- -j8 V=1
+dddk clean --target "$TARGET" --module "$MODULE_DIR"
+dddk shell --target "$TARGET" --module "$MODULE_DIR"
 ```
 
-## Build Different Versions
+`--module` mounts the module directory at `/build` and runs the standard Kbuild command against the matching kernel build directory. The `.ko` file and intermediate outputs are written directly to the module directory.
 
-Change `VER` to build each supported release:
+Pin the default target with `.ddk-version`:
 
 ```bash
-for VER in \
-    android14-5.15 \
-    android14-6.1 \
-    android15-6.6 \
-    android16-6.12 \
-    android17-6.18
-do
-    make -C docker toolchains VER="$VER"
-    make -C docker build VER="$VER"
-done
+echo android17-6.18 > .ddk-version
+dddk pull
+dddk build --module "$PWD/my-driver" -- -j8
+dddk clean --module "$PWD/my-driver"
 ```
 
-Build every version supported by the current host platform with:
+`--target` takes precedence over `.ddk-version`, which takes precedence over the `DDK_TARGET` environment variable. Set `DDK_ROOT` to override the local DDK installation path. Use `--platform linux/amd64` or `--platform linux/arm64` to select an image architecture explicitly.
 
-```bash
-make -C docker toolchains
-make -C docker build-all
-```
+## Credits
 
-## Push Images
-
-Run `docker login`, then set `PUSH=1`:
-
-```bash
-VER=android17-6.18
-make -C docker builder PUSH=1
-make -C docker toolchains VER="$VER" PUSH=1
-make -C docker build VER="$VER" PUSH=1
-```
-
-The default registry namespace is `docker.io/fsx199`. Set `REG` to use another registry.
+Forked from Ylarod/ddk.

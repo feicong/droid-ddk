@@ -18,7 +18,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-DROID_DDK_ROOT = Path(os.environ.get("DROID_DDK_ROOT", "/opt/droid-ddk"))
+DDK_ROOT = Path(os.environ.get("DDK_ROOT", "/opt/droid-ddk"))
 DEFAULT_MAP_FILE = PROJECT_ROOT / "mapping.json"
 PREBUILTS_DIR = PROJECT_ROOT / "prebuilts"
 
@@ -112,18 +112,18 @@ def _quote(value):
 
 def ensure_droid_ddk_root():
     """确保 /opt/droid-ddk 目录存在并归当前用户所有"""
-    if not DROID_DDK_ROOT.is_dir():
+    if not DDK_ROOT.is_dir():
         print("[+] 创建 /opt/droid-ddk ...")
-        run(f"sudo mkdir -p {DROID_DDK_ROOT}")
+        run(f"sudo mkdir -p {DDK_ROOT}")
     # 检查所有权
     import getpass, grp
     user = getpass.getuser()
     gid = os.getgid()
     group = grp.getgrgid(gid).gr_name
-    stat = DROID_DDK_ROOT.stat()
+    stat = DDK_ROOT.stat()
     if stat.st_uid != os.getuid() or stat.st_gid != gid:
-        print(f"[+] 修改 {DROID_DDK_ROOT} 所有者为 {user}:{group}")
-        run(f"sudo chown -R {user}:{group} {DROID_DDK_ROOT}")
+        print(f"[+] 修改 {DDK_ROOT} 所有者为 {user}:{group}")
+        run(f"sudo chown -R {user}:{group} {DDK_ROOT}")
 
 
 def extract_prebuilt(component, name, base_dir, prefix=""):
@@ -144,7 +144,7 @@ def extract_prebuilt(component, name, base_dir, prefix=""):
 # ── clang ──────────────────────────────────────────────
 
 def setup_clang_download(branch, version):
-    dest = DROID_DDK_ROOT / "clang" / version
+    dest = DDK_ROOT / "clang" / version
     if dest.is_dir():
         print(f"[!] {version} already exists, skip")
         return
@@ -158,7 +158,7 @@ def setup_clang_download(branch, version):
 
 
 def setup_clang_prebuilt(version):
-    extract_prebuilt("clang", version, DROID_DDK_ROOT / "clang")
+    extract_prebuilt("clang", version, DDK_ROOT / "clang")
 
 
 def download_verified(url, destination, expected_sha256):
@@ -222,7 +222,7 @@ def extract_archive(archive, destination, archive_type):
 
 def setup_ndk(mapping, platform_name, ndk_version):
     spec = ndk_spec(mapping, platform_name, ndk_version)
-    dest = DROID_DDK_ROOT / "ndk" / spec["root"]
+    dest = DDK_ROOT / "ndk" / spec["root"]
     marker = dest / ".droid-ddk-toolchain.json"
     identity = {
         "release": spec["release"],
@@ -240,7 +240,7 @@ def setup_ndk(mapping, platform_name, ndk_version):
     if dest.exists():
         shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    download_dir = DROID_DDK_ROOT / ".downloads"
+    download_dir = DDK_ROOT / ".downloads"
     archive = download_dir / spec["archive"]
     try:
         download_dir.mkdir(parents=True, exist_ok=True)
@@ -257,9 +257,9 @@ def setup_ndk(mapping, platform_name, ndk_version):
 
 def arm64_rust_env():
     env = os.environ.copy()
-    rustup_home = DROID_DDK_ROOT / ".rustup"
-    cargo_home = DROID_DDK_ROOT / ".cargo"
-    droid_ddk_bin = DROID_DDK_ROOT / "bin"
+    rustup_home = DDK_ROOT / ".rustup"
+    cargo_home = DDK_ROOT / ".cargo"
+    droid_ddk_bin = DDK_ROOT / "bin"
     env["RUSTUP_HOME"] = str(rustup_home)
     env["CARGO_HOME"] = str(cargo_home)
     env["RUSTUP_NO_SELF_UPDATE"] = "1"
@@ -286,17 +286,17 @@ def setup_arm64_rust(mapping, platform_name, rust_version=None):
     if not spec:
         return None
     env = arm64_rust_env()
-    rustup = DROID_DDK_ROOT / ".cargo" / "bin" / "rustup"
+    rustup = DDK_ROOT / ".cargo" / "bin" / "rustup"
     if not rustup.is_file():
         run("curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path", env=env)
     rustup_cmd = _quote(rustup)
     version = spec["version"]
     components = ",".join(spec["components"])
     run(f"{rustup_cmd} toolchain install {version} --profile minimal --component {components}", env=env)
-    bindgen = DROID_DDK_ROOT / ".cargo" / "bin" / "bindgen"
+    bindgen = DDK_ROOT / ".cargo" / "bin" / "bindgen"
     if not bindgen.is_file():
         run(
-            f"{_quote(DROID_DDK_ROOT / '.cargo' / 'bin' / 'cargo')} +{version} install "
+            f"{_quote(DDK_ROOT / '.cargo' / 'bin' / 'cargo')} +{version} install "
             f"bindgen-cli --version {spec['bindgenVersion']} --locked",
             env=env,
         )
@@ -306,10 +306,10 @@ def setup_arm64_rust(mapping, platform_name, rust_version=None):
 
 def ensure_arm64_bindgen_wrapper():
     """创建不继承目录形式CLANG_PATH的bindgen包装器。"""
-    cargo_bindgen = DROID_DDK_ROOT / ".cargo" / "bin" / "bindgen"
+    cargo_bindgen = DDK_ROOT / ".cargo" / "bin" / "bindgen"
     if not cargo_bindgen.is_file():
         raise RuntimeError("bindgen未安装，请先运行setup-toolchain")
-    wrapper = DROID_DDK_ROOT / "bin" / "bindgen"
+    wrapper = DDK_ROOT / "bin" / "bindgen"
     wrapper.parent.mkdir(parents=True, exist_ok=True)
     wrapper.write_text(
         "#!/bin/sh\n"
@@ -326,9 +326,9 @@ def arm64_rust_tools(mapping, platform_name, rust_version=None):
     if not spec:
         return {}
     env = arm64_rust_env()
-    rustup = DROID_DDK_ROOT / ".cargo" / "bin" / "rustup"
-    cargo = DROID_DDK_ROOT / ".cargo" / "bin" / "cargo"
-    cargo_bindgen = DROID_DDK_ROOT / ".cargo" / "bin" / "bindgen"
+    rustup = DDK_ROOT / ".cargo" / "bin" / "rustup"
+    cargo = DDK_ROOT / ".cargo" / "bin" / "cargo"
+    cargo_bindgen = DDK_ROOT / ".cargo" / "bin" / "bindgen"
     if not rustup.is_file() or not cargo.is_file() or not cargo_bindgen.is_file():
         raise RuntimeError("ARM64 Rust工具链未安装，请先运行setup-toolchain")
     bindgen = ensure_arm64_bindgen_wrapper()
@@ -374,7 +374,7 @@ def setup_rust_download(
     version, branch, repo, archive_path=None, bindgen_version=None
 ):
     ver_num = version.removeprefix("rust-")
-    dest = DROID_DDK_ROOT / "rust" / version
+    dest = DDK_ROOT / "rust" / version
     if dest.is_dir():
         _install_prebuilt_bindgen(dest, bindgen_version)
         print(f"[!] {version} already exists, skip")
@@ -394,11 +394,11 @@ def setup_rust_download(
 
 
 def setup_rust_prebuilt(version):
-    extract_prebuilt("rust", version, DROID_DDK_ROOT / "rust")
+    extract_prebuilt("rust", version, DDK_ROOT / "rust")
 
 
 def prebuilt_rust_tools(rust_version):
-    rust_root = DROID_DDK_ROOT / "rust" / rust_version
+    rust_root = DDK_ROOT / "rust" / rust_version
     tools = {
         "rustc": rust_root / "bin" / "rustc",
         "rustfmt": rust_root / "bin" / "rustfmt",
@@ -416,7 +416,7 @@ def prebuilt_rust_tools(rust_version):
 def setup_source_download(name, branch=None):
     if not branch:
         branch = name
-    dest = DROID_DDK_ROOT / "src" / name
+    dest = DDK_ROOT / "src" / name
     if dest.is_dir():
         print(f"[!] {name} already exists, skip")
         return
@@ -425,7 +425,7 @@ def setup_source_download(name, branch=None):
 
 
 def setup_source_prebuilt(name):
-    extract_prebuilt("src", name, DROID_DDK_ROOT / "src", prefix="src.")
+    extract_prebuilt("src", name, DDK_ROOT / "src", prefix="src.")
 
 
 # ── build ──────────────────────────────────────────────
@@ -440,11 +440,11 @@ def _drain_output(proc, tag):
 def toolchain_bin(mapping, platform_name, clang_version, ndk_version=None):
     platform = platform_config(mapping, platform_name)
     if platform["toolchainKind"] == "aosp-clang":
-        return DROID_DDK_ROOT / "clang" / clang_version / "bin"
+        return DDK_ROOT / "clang" / clang_version / "bin"
     if not ndk_version:
         raise ValueError(f"{platform_name}构建缺少NDK版本")
     spec = ndk_spec(mapping, platform_name, ndk_version)
-    return DROID_DDK_ROOT / "ndk" / spec["root"] / spec["bin"]
+    return DDK_ROOT / "ndk" / spec["root"] / spec["bin"]
 
 
 def kernel_make_command(env, args):
@@ -475,7 +475,7 @@ def _make_kernel_env(
     path_parts = [str(clang_bin)]
     if platform["toolchainKind"] == "aosp-clang":
         if rust_version:
-            rust_bin = (DROID_DDK_ROOT / "rust" / rust_version / "bin").resolve()
+            rust_bin = (DDK_ROOT / "rust" / rust_version / "bin").resolve()
             if rust_bin.is_dir():
                 path_parts.append(str(rust_bin))
     else:
@@ -504,7 +504,7 @@ def _make_kernel_env(
         if rust_version and platform_name == "linux-arm64":
             rust_tools = arm64_rust_tools(mapping, platform_name, rust_version)
             env.update(rust_tools["env"])
-            path_parts.append(str(DROID_DDK_ROOT / ".cargo" / "bin"))
+            path_parts.append(str(DDK_ROOT / ".cargo" / "bin"))
             env.update({
                 "RUSTC": str(rust_tools["rustc"]),
                 "RUSTFMT": str(rust_tools["rustfmt"]),
@@ -561,12 +561,12 @@ def build_kernel_start(
     build_proc=None,
 ):
     """配置并启动内核编译，返回 (Popen, tag) 或 None（已跳过）"""
-    out_path = kdir_path(DROID_DDK_ROOT, platform_name, android_branch)
+    out_path = kdir_path(DDK_ROOT, platform_name, android_branch)
     if out_path.is_dir():
         print(f"[!] {android_branch} already exists, skip")
         return None
 
-    src_path = DROID_DDK_ROOT / "src" / android_branch
+    src_path = DDK_ROOT / "src" / android_branch
     if not src_path.is_dir():
         print(f"[x] 源码目录不存在: {src_path}")
         sys.exit(1)
@@ -617,12 +617,12 @@ def build_kernel_modules_prepare(
     build_proc=None,
 ):
     """仅执行 modules_prepare（生成精简 kdir）"""
-    out_path = kdir_path(DROID_DDK_ROOT, platform_name, android_branch)
+    out_path = kdir_path(DDK_ROOT, platform_name, android_branch)
     if out_path.is_dir():
         print(f"[!] {android_branch} already exists, skip modules_prepare")
         return
 
-    src_path = DROID_DDK_ROOT / "src" / android_branch
+    src_path = DDK_ROOT / "src" / android_branch
     if not src_path.is_dir():
         print(f"[x] 源码目录不存在: {src_path}")
         sys.exit(1)
@@ -886,8 +886,8 @@ def cmd_build(args):
     build_kernels(mapping, platform_name, matrix_list, lto=args.lto, build_proc=args.jobs)
 
     if args.min:
-        kdir = DROID_DDK_ROOT / "kdir" / platform_name
-        kdir_full = DROID_DDK_ROOT / "kdir-full" / platform_name
+        kdir = DDK_ROOT / "kdir" / platform_name
+        kdir_full = DDK_ROOT / "kdir-full" / platform_name
 
         # mv kdir -> kdir-full
         if kdir.is_dir():
@@ -920,14 +920,14 @@ def cmd_build(args):
 
 
 def cmd_rebuild(args):
-    if not DROID_DDK_ROOT.is_dir():
-        print(f"[x] {DROID_DDK_ROOT} is not exist")
+    if not DDK_ROOT.is_dir():
+        print(f"[x] {DDK_ROOT} is not exist")
         sys.exit(1)
 
     mapping = load_mapping(args.map_file)
     platform_name = resolve_platform(mapping, args)
 
-    kdir = DROID_DDK_ROOT / "kdir" / platform_name
+    kdir = DDK_ROOT / "kdir" / platform_name
     if kdir.is_dir():
         if args.android:
             target = kdir / args.android

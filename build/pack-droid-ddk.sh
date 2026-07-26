@@ -16,7 +16,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${DROID_DDK_ROOT:-/opt/droid-ddk}"
+ROOT="${DDK_ROOT:-/opt/droid-ddk}"
 
 THREADS=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)
 ZSTFLAGS="-10 -T${THREADS}"
