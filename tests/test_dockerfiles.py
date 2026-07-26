@@ -73,5 +73,12 @@ class DockerfileContractTest(unittest.TestCase):
         self.assertIn('--arg version "$(VER)"', makefile)
         self.assertIn('$$version == "" or .android == $$version', makefile)
 
+    def test_makefile_supports_architecture_specific_tags(self):
+        makefile = (ROOT / "docker/Makefile").read_text()
+        self.assertIn("TAG_SUFFIX ?=", makefile)
+        self.assertIn("$(TOOLCHAIN_IMAGE):$$ANDROID$(TAG_SUFFIX)", makefile)
+        self.assertIn("$(REG)/$(IMG):$(VER)$(TAG_SUFFIX)", makefile)
+        self.assertIn("$(MIN_IMAGE):$(VER)$(TAG_SUFFIX)", makefile)
+
 if __name__ == "__main__":
     unittest.main()

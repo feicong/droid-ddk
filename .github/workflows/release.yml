@@ -105,7 +105,20 @@ jobs:
 
     - name: Build image
       run: |
-        make -C docker toolchains VER="${{ matrix.source_name }}" PUSH=1
+        make -C docker toolchains \
+          VER="${{ matrix.source_name }}" \
+          TAG_SUFFIX=-linux-amd64 \
+          PUSH=1
+
+    - name: Publish multi-platform image
+      run: |
+        image="docker.io/fsx199/droid-ddk-toolchain:${{ matrix.source_name }}"
+        docker buildx imagetools create \
+          --tag "$image" \
+          "${image}-linux-arm64" \
+          "${image}-linux-amd64"
+        docker buildx imagetools inspect --raw "$image" | \
+          jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64"))'
   
   build:
     needs: ["prepare", "toolchains"]
@@ -145,4 +158,17 @@ jobs:
 
     - name: Build image
       run: |
-        make -C docker build VER=${{ matrix.source_name }} PUSH=1
+        make -C docker build \
+          VER=${{ matrix.source_name }} \
+          TAG_SUFFIX=-linux-amd64 \
+          PUSH=1
+
+    - name: Publish multi-platform image
+      run: |
+        image="docker.io/fsx199/droid-ddk:${{ matrix.source_name }}"
+        docker buildx imagetools create \
+          --tag "$image" \
+          "${image}-linux-arm64" \
+          "${image}-linux-amd64"
+        docker buildx imagetools inspect --raw "$image" | \
+          jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64"))'
