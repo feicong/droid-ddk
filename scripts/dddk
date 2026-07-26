@@ -19,7 +19,7 @@ set -euo pipefail
 #   ~/.droid-ddk/source  - Image source (cnb/github/docker)
 #   ~/.droid-ddk/mode    - Run mode (local/docker)
 #   ~/.droid-ddk/mapping.json - Target to clang version mapping
-#   .droid-ddk-version   - Project-level target version (in project directory)
+#   .ddk-version   - Project-level target version (in project directory)
 #
 # Environment Variables:
 #   DROID_DDK_ROOT   - Local DDK installation path (default: /opt/droid-ddk)
@@ -27,7 +27,7 @@ set -euo pipefail
 #
 # Target Resolution Priority:
 #   1. Command line argument (--target or positional)
-#   2. .droid-ddk-version file in current directory
+#   2. .ddk-version file in current directory
 #   3. DROID_DDK_TARGET environment variable
 #
 # ============================================================================
@@ -164,7 +164,7 @@ Commands:
 
 Options:
   --target, -t   image tag like 'android17-6.18'
-                 (Priority: command arg > .droid-ddk-version file > DROID_DDK_TARGET env)
+                 (Priority: command arg > .ddk-version file > DROID_DDK_TARGET env)
   --env, -e      pass environment variable (can be used multiple times)
                  Example: --env CONFIG_FOO=y -e CONFIG_BAR=n
   --module, -m   external kernel module directory; build, clean and shell
@@ -174,7 +174,7 @@ Options:
 
 Target Resolution:
   1. Command line argument (--target or positional)
-  2. .droid-ddk-version file in current directory
+  2. .ddk-version file in current directory
   3. DROID_DDK_TARGET environment variable
 
 Examples:
@@ -195,10 +195,10 @@ Examples:
   $prog build android17-6.18 --env CONFIG_FOO=y -e CONFIG_BAR=n
   $prog shell -t android17-6.18 --env DEBUG=1
 
-  # Using .droid-ddk-version file:
-  echo "android17-6.18" > .droid-ddk-version
-  $prog build    # Will use android17-6.18 from .droid-ddk-version
-  $prog clean    # Will use android17-6.18 from .droid-ddk-version
+  # Using .ddk-version file:
+  echo "android17-6.18" > .ddk-version
+  $prog build    # Will use android17-6.18 from .ddk-version
+  $prog clean    # Will use android17-6.18 from .ddk-version
 EOF
 }
 
@@ -398,12 +398,12 @@ init_config() {
 # Target Resolution Functions
 # ============================================================================
 
-# Read target from .droid-ddk-version file in current directory
+# Read target from .ddk-version file in current directory
 # Returns:
 #   Echoes the target string if file exists and is valid
 #   Echoes empty string if file doesn't exist or is empty
 get_target_from_version_file() {
-  local version_file=".droid-ddk-version"
+  local version_file=".ddk-version"
 
   if [[ -f "$version_file" ]]; then
     # Read and trim whitespace
@@ -1186,19 +1186,19 @@ main() {
 
   # Validate TARGET for commands that need it
   if [[ -z "$TARGET" ]]; then
-    # Try .droid-ddk-version file first
+    # Try .ddk-version file first
     local version_file_target
     version_file_target=$(get_target_from_version_file)
     if [[ -n "$version_file_target" ]]; then
       TARGET="$version_file_target"
-      echo "Using target from .droid-ddk-version: $TARGET"
+      echo "Using target from .ddk-version: $TARGET"
     # Then try environment variable fallback
     elif [[ -n "${DROID_DDK_TARGET:-}" ]]; then
       TARGET="$DROID_DDK_TARGET"
       echo "Using target from DROID_DDK_TARGET: $TARGET"
     else
       echo "Error: target is required. Use --target or provide it as the first positional argument," >&2
-      echo "       or create a .droid-ddk-version file, or set DROID_DDK_TARGET environment variable." >&2
+      echo "       or create a .ddk-version file, or set DROID_DDK_TARGET environment variable." >&2
       usage
       exit 2
     fi

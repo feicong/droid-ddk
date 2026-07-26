@@ -53,16 +53,16 @@ dddk shell --target "$TARGET" --module "$MODULE_DIR"
 
 `--module`将模块目录挂载到镜像内的`/build`，并执行与镜像内核构建目录匹配的标准Kbuild命令。`.ko`及中间产物直接写入模块目录。
 
-项目可用`.droid-ddk-version`固定默认目标：
+项目可用`.ddk-version`固定默认目标：
 
 ```bash
-echo android17-6.18 > .droid-ddk-version
+echo android17-6.18 > .ddk-version
 dddk pull
 dddk build --module "$PWD/my-driver" -- -j8
 dddk clean --module "$PWD/my-driver"
 ```
 
-命令行`--target`优先级高于`.droid-ddk-version`，后者优先级高于`DROID_DDK_TARGET`环境变量。通过`--platform linux/amd64`或`--platform linux/arm64`可以显式选择镜像架构。
+命令行`--target`优先级高于`.ddk-version`，后者优先级高于`DROID_DDK_TARGET`环境变量。通过`--platform linux/amd64`或`--platform linux/arm64`可以显式选择镜像架构。
 
 ## 致谢
 
