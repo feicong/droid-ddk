@@ -241,6 +241,16 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertEqual(branches["android15-6.1"], "android14-6.1-lts")
         self.assertEqual(branches["android16-6.6"], "android15-6.6-lts")
 
+    def test_setup_source_download_preserves_kernel_modpost(self):
+        with patch.object(BUILD, "run") as run:
+            BUILD.setup_source_download("android17-6.18")
+
+        run.assert_called_once_with(
+            "git clone https://android.googlesource.com/kernel/common "
+            "-b android17-6.18 --depth 1 "
+            f"{BUILD.DROID_DDK_ROOT / 'src/android17-6.18'}"
+        )
+
     def test_amd64_matrix_contains_android13_5_15_to_android17(self):
         targets = {
             item["android"]

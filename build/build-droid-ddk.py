@@ -422,10 +422,6 @@ def setup_source_download(name, branch=None):
         return
     print(f"[+] Clone {name} (branch: {branch})")
     run(f"git clone https://android.googlesource.com/kernel/common -b {branch} --depth 1 {dest}")
-    modpost = dest / "scripts" / "mod" / "modpost.c"
-    if modpost.is_file():
-        run(f"sed -i 's/^\\(\\s*check_exports(mod);\\)/\\/\\/\\1/' {modpost}")
-        run(f"sed -i 's/^\\(\\s*s->module = exp->module;\\)/\\/\\/\\1/' {modpost}")
 
 
 def setup_source_prebuilt(name):
