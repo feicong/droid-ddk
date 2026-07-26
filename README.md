@@ -156,3 +156,8 @@ make -C docker build VER="$VER" PUSH=1
 ```
 
 默认仓库命名空间是 `docker.io/fsx199`，通过 `REG` 可指定其他仓库。
+
+## 致谢
+
+项目fork自：Ylarod/ddk
+
