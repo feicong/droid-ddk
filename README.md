@@ -11,9 +11,10 @@
 | `android15-6.6` | `android15-6.6-lts` | r25c |
 | `android16-6.6` | `android15-6.6-lts` | r25c |
 | `android16-6.12` | `android16-6.12-lts` | r29 |
+| `android17-6.12` | `android16-6.12-lts` | r29 |
 | `android17-6.18` | `android17-6.18-lts` | r29 |
 
-`android15-6.1`与`android16-6.6`用于在较新Android系统上继续匹配上一代ACK内核。选择目标时以设备`uname -r`中的ACK代际和内核版本为准。
+`android15-6.1`、`android16-6.6`与`android17-6.12`用于在较新Android系统上继续匹配上一代ACK内核。选择目标时以设备`uname -r`中的ACK代际和内核版本为准。
 
 ## 安装`dddk`
 

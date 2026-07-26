@@ -542,7 +542,7 @@ def _configure_kernel(src_path, out_path_abs, env, lto=None, android_branch=None
     elif lto == "full":
         run(f"{scripts_config} --file {config_file} -e LTO_CLANG -d LTO_NONE -d LTO_CLANG_THIN -e LTO_CLANG_FULL -d THINLTO", env=env)
 
-    if android_branch == "android16-6.12":
+    if android_branch in ("android16-6.12", "android17-6.12"):
         run(f"{scripts_config} --file {config_file} -e CFI_ICALL_NORMALIZE_INTEGERS", env=env)
     run(kernel_make_command(env, f"O={_quote(out_path_abs)} olddefconfig"), cwd=src_path, env=env)
     if require_rust:

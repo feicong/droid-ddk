@@ -203,6 +203,7 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android15-6.6",
                 "android16-6.6",
                 "android16-6.12",
+                "android17-6.12",
                 "android17-6.18",
             },
         )
@@ -231,6 +232,7 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android15-6.6",
                 "android16-6.6",
                 "android16-6.12",
+                "android17-6.12",
                 "android17-6.18",
             ],
         )
@@ -240,6 +242,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         }
         self.assertEqual(branches["android15-6.1"], "android14-6.1-lts")
         self.assertEqual(branches["android16-6.6"], "android15-6.6-lts")
+        self.assertEqual(branches["android17-6.12"], "android16-6.12-lts")
 
     def test_setup_source_download_preserves_kernel_modpost(self):
         with patch.object(BUILD, "run") as run:
@@ -266,6 +269,7 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android15-6.6",
                 "android16-6.6",
                 "android16-6.12",
+                "android17-6.12",
                 "android17-6.18",
             },
         )
@@ -392,17 +396,18 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertIn("RUST_LIB_SRC='/toolchain/rust library'", command)
         self.assertIn("HOSTCFLAGS=-I/usr/include/libdwarf", command)
 
-    def test_android16_enables_cfi_integer_normalization_symbol(self):
-        with patch.object(BUILD, "run") as run:
-            BUILD._configure_kernel(
-                Path("/kernel/src"),
-                Path("/kernel/out"),
-                {},
-                android_branch="android16-6.12",
-            )
-        commands = "\n".join(call.args[0] for call in run.call_args_list)
-        self.assertIn("-e CFI_ICALL_NORMALIZE_INTEGERS", commands)
-        self.assertNotIn("-e CONFIG_CFI_ICALL_NORMALIZE_INTEGERS", commands)
+    def test_android_6_12_targets_enable_cfi_integer_normalization_symbol(self):
+        for target in ("android16-6.12", "android17-6.12"):
+            with self.subTest(target=target), patch.object(BUILD, "run") as run:
+                BUILD._configure_kernel(
+                    Path("/kernel/src"),
+                    Path("/kernel/out"),
+                    {},
+                    android_branch=target,
+                )
+            commands = "\n".join(call.args[0] for call in run.call_args_list)
+            self.assertIn("-e CFI_ICALL_NORMALIZE_INTEGERS", commands)
+            self.assertNotIn("-e CONFIG_CFI_ICALL_NORMALIZE_INTEGERS", commands)
 
     def test_arm64_bindgen_wrapper_unsets_directory_clang_path(self):
         cargo_bin = BUILD.DDK_ROOT / ".cargo/bin"

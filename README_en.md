@@ -11,9 +11,10 @@
 | `android15-6.6` | `android15-6.6-lts` | r25c |
 | `android16-6.6` | `android15-6.6-lts` | r25c |
 | `android16-6.12` | `android16-6.12-lts` | r29 |
+| `android17-6.12` | `android16-6.12-lts` | r29 |
 | `android17-6.18` | `android17-6.18-lts` | r29 |
 
-`android15-6.1` and `android16-6.6` keep the previous ACK generation available for newer Android releases. Select a target that matches the ACK generation and kernel version reported by the device's `uname -r`.
+`android15-6.1`, `android16-6.6`, and `android17-6.12` keep the previous ACK generation available for newer Android releases. Select a target that matches the ACK generation and kernel version reported by the device's `uname -r`.
 
 ## Install `dddk`
 
