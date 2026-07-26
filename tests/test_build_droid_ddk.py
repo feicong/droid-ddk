@@ -153,13 +153,17 @@ class BuildDroidDdkTest(unittest.TestCase):
         destination = root / "extract"
         destination.mkdir()
         with zipfile.ZipFile(archive, "w") as package:
-            package.writestr("android-ndk-r29/toolchains/llvm/bin/clang", "")
+            clang = zipfile.ZipInfo(
+                "android-ndk-r29/toolchains/llvm/bin/clang"
+            )
+            clang.external_attr = 0o100755 << 16
+            package.writestr(clang, "#!/bin/sh\n")
         BUILD.extract_archive(archive, destination, "zip")
-        self.assertTrue(
-            (destination / "android-ndk-r29/toolchains/llvm/bin/clang").is_file()
-        )
+        extracted = destination / "android-ndk-r29/toolchains/llvm/bin/clang"
+        self.assertTrue(extracted.is_file())
+        self.assertEqual(extracted.stat().st_mode & 0o111, 0o111)
 
-    def test_arm64_matrix_contains_android14_to_android17(self):
+    def test_arm64_matrix_contains_android13_5_15_to_android17(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-arm64")
@@ -167,6 +171,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertEqual(
             targets,
             {
+                "android13-5.15",
                 "android14-5.15",
                 "android14-6.1",
                 "android15-6.6",
@@ -192,6 +197,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertEqual(
             targets,
             [
+                "android13-5.15",
                 "android14-5.15",
                 "android14-6.1",
                 "android15-6.6",
@@ -200,7 +206,7 @@ class BuildDroidDdkTest(unittest.TestCase):
             ],
         )
 
-    def test_amd64_matrix_contains_android14_to_android17(self):
+    def test_amd64_matrix_contains_android13_5_15_to_android17(self):
         targets = {
             item["android"]
             for item in BUILD.matrix_for_platform(self.mapping, "linux-amd64")
@@ -208,6 +214,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         self.assertEqual(
             targets,
             {
+                "android13-5.15",
                 "android14-5.15",
                 "android14-6.1",
                 "android15-6.6",
@@ -220,7 +227,7 @@ class BuildDroidDdkTest(unittest.TestCase):
         target = next(
             item
             for item in self.mapping["matrix"]
-            if item["android"] == "android14-5.15"
+            if item["android"] == "android13-5.15"
         )
         with patch.object(BUILD, "build_kernel_start", return_value=None) as start:
             BUILD.build_kernels(self.mapping, "linux-arm64", [target])

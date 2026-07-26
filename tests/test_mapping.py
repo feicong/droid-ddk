@@ -62,6 +62,7 @@ class MappingContractTest(unittest.TestCase):
 
     def test_supported_targets_select_explicit_ndk_and_platforms(self):
         matrix = {item["android"]: item for item in MAPPING["matrix"]}
+        self.assertEqual(matrix["android13-5.15"]["ndk"], "r25c")
         self.assertEqual(matrix["android14-5.15"]["ndk"], "r25c")
         self.assertEqual(matrix["android14-6.1"]["ndk"], "r25c")
         self.assertEqual(matrix["android15-6.6"]["ndk"], "r25c")
@@ -72,6 +73,7 @@ class MappingContractTest(unittest.TestCase):
         self.assertEqual(matrix["android16-6.12"]["ndk"], "r29")
         self.assertEqual(matrix["android17-6.18"]["ndk"], "r29")
         for target in (
+            "android13-5.15",
             "android14-5.15",
             "android14-6.1",
             "android15-6.6",
@@ -83,11 +85,12 @@ class MappingContractTest(unittest.TestCase):
                 ["linux-amd64", "linux-arm64"],
             )
 
-        for target in ("android12-5.10", "android13-5.10", "android13-5.15"):
+        for target in ("android12-5.10", "android13-5.10"):
             self.assertEqual(matrix[target]["platforms"], [])
 
-    def test_android14_uses_thin_lto_and_6_1_host_compatibility_flags(self):
+    def test_android13_and_android14_use_thin_lto(self):
         matrix = {item["android"]: item for item in MAPPING["matrix"]}
+        self.assertEqual(matrix["android13-5.15"]["lto"], "thin")
         self.assertEqual(matrix["android14-5.15"]["lto"], "thin")
         self.assertEqual(matrix["android14-6.1"]["lto"], "thin")
         self.assertEqual(

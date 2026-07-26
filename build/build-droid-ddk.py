@@ -184,6 +184,10 @@ def extract_archive(archive, destination, archive_type):
                 if not candidate.is_relative_to(destination):
                     raise RuntimeError(f"归档包含越界路径：{member.filename}")
             package.extractall(destination)
+            for member in members:
+                mode = (member.external_attr >> 16) & 0o777
+                if mode:
+                    (destination / member.filename).chmod(mode)
         return
     if archive_type != "tar.gz":
         raise ValueError(f"不支持的NDK归档格式：{archive_type}")

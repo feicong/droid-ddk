@@ -4,6 +4,7 @@
 
 | `VER` | NDK |
 |---|---|
+| `android13-5.15` | r25c |
 | `android14-5.15` | r25c |
 | `android14-6.1` | r25c |
 | `android15-6.6` | r25c |
@@ -125,6 +126,7 @@ dddk clean --target "$VER" --module "$MODULE_DIR"
 
 ```bash
 for VER in \
+    android13-5.15 \
     android14-5.15 \
     android14-6.1 \
     android15-6.6 \

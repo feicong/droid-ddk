@@ -121,7 +121,7 @@
   "matrix": [
     { "android": "android12-5.10", "clang": "clang-r416183b", "rust": null, "platforms": [] },
     { "android": "android13-5.10", "clang": "clang-r450784e", "rust": null, "platforms": [] },
-    { "android": "android13-5.15", "clang": "clang-r450784e", "rust": null, "platforms": [] },
+    { "android": "android13-5.15", "clang": "clang-r450784e", "rust": null, "ndk": "r25c", "lto": "thin", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android14-5.15", "clang": "clang-r487747c", "rust": null, "ndk": "r25c", "lto": "thin", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android14-6.1",  "clang": "clang-r487747c", "rust": null, "ndk": "r25c", "lto": "thin", "hostCFlags": "-Wno-error=incompatible-pointer-types-discards-qualifiers -DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android15-6.6",  "clang": "clang-r510928", "rust": null, "ndk": "r25c", "hostCFlags": "-DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
