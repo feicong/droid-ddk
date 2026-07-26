@@ -231,37 +231,37 @@ configure_source() {
   # Initialize config if not exists
   if [[ ! -f "$DROID_DDK_SOURCE_CONFIG" ]]; then
     echo "First run detected. Please select an image source:"
-    echo "1. cnb (docker.cnb.cool/feicong/droid-ddk/droid-ddk)"
+    echo "1. docker (docker.io/fsx199/droid-ddk)"
     echo "2. github (ghcr.io/feicong/droid-ddk)"
-    echo "3. docker (docker.io/fsx199/droid-ddk)"
+    echo "3. cnb (docker.cnb.cool/feicong/droid-ddk/droid-ddk)"
     echo ""
-    echo "Waiting 30 seconds (default: github)..."
+    echo "Waiting 30 seconds (default: docker)..."
 
     local choice=""
     if read -t 30 -p "Enter your choice (1/2/3): " choice; then
       echo ""
     else
       echo ""
-      echo "Timeout: defaulting to github source"
-      choice="2"
+      echo "Timeout: defaulting to docker source"
+      choice="1"
     fi
 
     case "$choice" in
       1)
-        echo "cnb" > "$DROID_DDK_SOURCE_CONFIG"
-        echo "Selected: cnb source"
+        echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
+        echo "Selected: docker source"
         ;;
       2)
         echo "github" > "$DROID_DDK_SOURCE_CONFIG"
         echo "Selected: github source"
         ;;
       3)
-        echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
-        echo "Selected: docker source"
+        echo "cnb" > "$DROID_DDK_SOURCE_CONFIG"
+        echo "Selected: cnb source"
         ;;
       *)
-        echo "Invalid option, defaulting to github source" >&2
-        echo "github" > "$DROID_DDK_SOURCE_CONFIG"
+        echo "Invalid option, defaulting to docker source" >&2
+        echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
         ;;
     esac
   fi
@@ -271,9 +271,9 @@ configure_source() {
 
   # Validate source value
   if [[ ! "$SOURCE" =~ ^(cnb|github|docker)$ ]]; then
-    echo "Warning: Invalid source '$SOURCE' in config, resetting to github" >&2
-    echo "github" > "$DROID_DDK_SOURCE_CONFIG"
-    SOURCE="github"
+    echo "Warning: Invalid source '$SOURCE' in config, resetting to docker" >&2
+    echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
+    SOURCE="docker"
   fi
 
   set_image_base
@@ -300,8 +300,8 @@ set_image_base() {
       IMAGE_BASE="docker.io/fsx199/droid-ddk"
       ;;
     *)
-      echo "Warning: unknown source configuration '$SOURCE', using default github source" >&2
-      IMAGE_BASE="ghcr.io/feicong/droid-ddk"
+      echo "Warning: unknown source configuration '$SOURCE', using default docker source" >&2
+      IMAGE_BASE="docker.io/fsx199/droid-ddk"
       ;;
   esac
 }

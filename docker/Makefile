@@ -16,6 +16,7 @@ FORCE ?= 0
 BUILDKIT ?= 1
 DOCKER ?= docker
 TAG_SUFFIX ?=
+BUILDER_TAG ?= latest
 
 DETECTED_MACHINE := $(shell uname -m)
 DETECTED_HOST_PLATFORM := $(if $(filter arm64 aarch64,$(DETECTED_MACHINE)),linux-arm64,linux-amd64)
@@ -31,7 +32,7 @@ PLATFORMS ?= $(PLAT)
 
 MATRIX := $(shell jq -r --arg platform "$(HOST_PLATFORM)" --arg version "$(VER)" '.matrix[] | select((.platforms | index($$platform)) and ($$version == "" or .android == $$version)) | "\(.android):\(.clang):\(.rust // ""):\(.ndk // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
 
-BUILDER_IMAGE := $(REG)/droid-ddk-builder:latest
+BUILDER_IMAGE := $(REG)/droid-ddk-builder:$(BUILDER_TAG)
 TOOLCHAIN_IMAGE := $(REG)/droid-ddk-toolchain
 MIN_IMAGE := $(REG)/droid-ddk-min
 DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)

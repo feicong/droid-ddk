@@ -183,7 +183,9 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android13-5.15",
                 "android14-5.15",
                 "android14-6.1",
+                "android15-6.1",
                 "android15-6.6",
+                "android16-6.6",
                 "android16-6.12",
                 "android17-6.18",
             },
@@ -209,11 +211,19 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android13-5.15",
                 "android14-5.15",
                 "android14-6.1",
+                "android15-6.1",
                 "android15-6.6",
+                "android16-6.6",
                 "android16-6.12",
                 "android17-6.18",
             ],
         )
+        branches = {
+            call.args[0]: call.args[1]
+            for call in setup_source.call_args_list
+        }
+        self.assertEqual(branches["android15-6.1"], "android14-6.1-lts")
+        self.assertEqual(branches["android16-6.6"], "android15-6.6-lts")
 
     def test_amd64_matrix_contains_android13_5_15_to_android17(self):
         targets = {
@@ -226,7 +236,9 @@ class BuildDroidDdkTest(unittest.TestCase):
                 "android13-5.15",
                 "android14-5.15",
                 "android14-6.1",
+                "android15-6.1",
                 "android15-6.6",
+                "android16-6.6",
                 "android16-6.12",
                 "android17-6.18",
             },

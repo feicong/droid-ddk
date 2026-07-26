@@ -1,11 +1,14 @@
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
+
 name: Publish Droid DDK Prebuilts
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: Android target in mapping.json, for example android17-6.18
-        required: true
+        description: Optional Android target from mapping.json; empty builds all targets
+        required: false
+        default: ""
         type: string
       include_kdir_min:
         description: Also publish the modules_prepare kdir-min archive
@@ -17,12 +20,85 @@ permissions:
   contents: write
 
 jobs:
-  publish:
+  prepare:
+    name: Prepare build matrix
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          lfs: false
+
+      - name: Generate native platform matrix
+        id: generate
+        uses: actions/github-script@v7
+        env:
+          TARGET: ${{ inputs.target }}
+        with:
+          script: |
+            const fs = require('fs');
+            const mapping = JSON.parse(fs.readFileSync('mapping.json', 'utf8'));
+            const requestedTarget = process.env.TARGET.trim();
+            const platforms = {
+              'linux-amd64': {
+                runner: 'ubuntu-24.04',
+                docker_platform: 'linux/amd64',
+              },
+              'linux-arm64': {
+                runner: 'ubuntu-24.04-arm',
+                docker_platform: 'linux/arm64',
+              },
+            };
+            const targets = (mapping.matrix || [])
+              .filter(entry => (entry.platforms || []).some(platform => platforms[platform]))
+              .filter(entry => !requestedTarget || entry.android === requestedTarget);
+            if (requestedTarget && targets.length === 0) {
+              core.setFailed(`unsupported target: ${requestedTarget}`);
+              return;
+            }
+            const matrix = targets.flatMap(entry =>
+              entry.platforms
+                .filter(platform => platforms[platform])
+                .map(platform => ({
+                  target: entry.android,
+                  rust: entry.rust || '',
+                  host_platform: platform,
+                  ...platforms[platform],
+                })),
+            );
+            core.setOutput('matrix', JSON.stringify(matrix));
+
+      - name: Ensure prebuilt release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view prebuilts-v1 --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create prebuilts-v1 \
+              --repo "${{ github.repository }}" \
+              --title "Droid DDK prebuilts" \
+              --notes "Droid DDK build input archives. Managed by build/publish-prebuilts.sh."
+          fi
+
+  publish:
+    name: ${{ matrix.target }} (${{ matrix.host_platform }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
     env:
-      TARGET: ${{ inputs.target }}
-      HOST_PLATFORM: linux-amd64
+      TARGET: ${{ matrix.target }}
+      RUST_VERSION: ${{ matrix.rust }}
+      HOST_PLATFORM: ${{ matrix.host_platform }}
+      DOCKER_PLATFORM: ${{ matrix.docker_platform }}
       INCLUDE_KDIR_MIN: ${{ inputs.include_kdir_min }}
+      WORK_VOLUME: droid-ddk-prebuilts-${{ matrix.target }}-${{ matrix.host_platform }}
       GITHUB_TOKEN: ${{ github.token }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -40,20 +116,27 @@ jobs:
           submodules: false
           lfs: false
 
-      - name: Build builder image
-        run: make -C docker builder
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build native builder image
+        run: |
+          make -C docker builder \
+            HOST_PLATFORM="$HOST_PLATFORM" \
+            PLAT="$DOCKER_PLATFORM"
 
       - name: Build and pack prebuilts
         run: |
           set -euo pipefail
-          docker volume create droid-ddk-prebuilts >/dev/null
+          docker volume create "$WORK_VOLUME" >/dev/null
           docker run --rm \
             -e DROID_DDK_ROOT=/workspace/droid-ddk-work \
             -e TARGET \
+            -e RUST_VERSION \
             -e HOST_PLATFORM \
             -e INCLUDE_KDIR_MIN \
             -v "$PWD:/workspace" \
-            -v droid-ddk-prebuilts:/workspace/droid-ddk-work \
+            -v "$WORK_VOLUME:/workspace/droid-ddk-work" \
             -w /workspace \
             docker.io/fsx199/droid-ddk-builder:latest \
             bash -ceu '
@@ -63,8 +146,17 @@ jobs:
                 --host-platform "$HOST_PLATFORM" --android "$TARGET"
               python3 build/build-droid-ddk.py build \
                 --host-platform "$HOST_PLATFORM" --android "$TARGET"
-              build/pack-droid-ddk.sh --src --kdir --rust \
-                --host-platform "$HOST_PLATFORM" --version "$TARGET"
+
+              pack_args=(--kdir --host-platform "$HOST_PLATFORM" --version "$TARGET")
+              if [[ "$HOST_PLATFORM" == "linux-amd64" ]]; then
+                pack_args=(--src "${pack_args[@]}")
+              fi
+              build/pack-droid-ddk.sh "${pack_args[@]}"
+
+              if [[ "$HOST_PLATFORM" == "linux-amd64" && -n "$RUST_VERSION" ]]; then
+                build/pack-droid-ddk.sh --rust --version "$RUST_VERSION"
+              fi
+
               if [[ "$INCLUDE_KDIR_MIN" == "true" ]]; then
                 python3 build/build-droid-ddk.py build \
                   --host-platform "$HOST_PLATFORM" --android "$TARGET" --min
@@ -76,8 +168,18 @@ jobs:
 
       - name: Publish GitHub Release assets
         run: |
-          args=(--target "$TARGET" --host-platform "$HOST_PLATFORM" --rust)
+          args=(--target "$TARGET" --host-platform "$HOST_PLATFORM")
+          if [[ "$HOST_PLATFORM" == "linux-amd64" && -n "$RUST_VERSION" ]]; then
+            args+=(--rust)
+          fi
+          if [[ "$HOST_PLATFORM" == "linux-arm64" ]]; then
+            args+=(--skip-src)
+          fi
           if [[ "$INCLUDE_KDIR_MIN" == "true" ]]; then
             args+=(--kdir-min)
           fi
           build/publish-prebuilts.sh "${args[@]}"
+
+      - name: Remove build volume
+        if: always()
+        run: docker volume rm --force "$WORK_VOLUME" >/dev/null 2>&1 || true

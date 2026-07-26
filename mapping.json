@@ -114,7 +114,9 @@
     { "name": "android13-5.15", "branch": "android13-5.15-lts" },
     { "name": "android14-5.15", "branch": "android14-5.15-lts" },
     { "name": "android14-6.1",  "branch": "android14-6.1-lts" },
+    { "name": "android15-6.1",  "branch": "android14-6.1-lts" },
     { "name": "android15-6.6",  "branch": "android15-6.6-lts" },
+    { "name": "android16-6.6",  "branch": "android15-6.6-lts" },
     { "name": "android16-6.12", "branch": "android16-6.12-lts" },
     { "name": "android17-6.18", "branch": "android17-6.18-lts", "arch": "arm64", "pageSize": "4k" }
   ],
@@ -124,7 +126,9 @@
     { "android": "android13-5.15", "clang": "clang-r450784e", "rust": null, "ndk": "r25c", "lto": "thin", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android14-5.15", "clang": "clang-r487747c", "rust": null, "ndk": "r25c", "lto": "thin", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android14-6.1",  "clang": "clang-r487747c", "rust": null, "ndk": "r25c", "lto": "thin", "hostCFlags": "-Wno-error=incompatible-pointer-types-discards-qualifiers -DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
+    { "android": "android15-6.1",  "clang": "clang-r487747c", "rust": null, "ndk": "r25c", "lto": "thin", "hostCFlags": "-Wno-error=incompatible-pointer-types-discards-qualifiers -DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android15-6.6",  "clang": "clang-r510928", "rust": null, "ndk": "r25c", "hostCFlags": "-DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
+    { "android": "android16-6.6",  "clang": "clang-r510928", "rust": null, "ndk": "r25c", "hostCFlags": "-DUSE_PKCS11_ENGINE", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android16-6.12", "clang": "clang-r536225", "rust": "rust-1.82.0", "ndk": "r29", "platforms": ["linux-amd64", "linux-arm64"] },
     { "android": "android17-6.18", "clang": "clang-r584948c", "rust": "rust-1.91.1", "ndk": "r29", "platforms": ["linux-amd64", "linux-arm64"] }
   ]

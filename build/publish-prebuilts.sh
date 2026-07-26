@@ -17,6 +17,7 @@ HOST_PLATFORM=""
 INCLUDE_KDIR_MIN=false
 INCLUDE_TARGET_RUST=false
 INCLUDE_ALL_RUST=false
+INCLUDE_SRC=true
 DRY_RUN=false
 
 usage() {
@@ -32,6 +33,7 @@ tag 为 prebuilts-v1；同名资产会被覆盖，供 fetch-prebuilts.sh 稳定�
       --kdir-min              同时上传 kdir-min/<平台>
       --rust                  上传该目标在 mapping.json 中使用的 Rust 资产
       --all-rust              上传当前平台使用的全部 Rust 资产
+      --skip-src              不上传平台无关的源码资产
       --repository <owner/repo>
                               Release 所在仓库，默认 feicong/droid-ddk
       --release-tag <tag>     Release tag，默认 prebuilts-v1
@@ -113,6 +115,9 @@ while [[ $# -gt 0 ]]; do
         --all-rust)
             INCLUDE_ALL_RUST=true
             ;;
+        --skip-src)
+            INCLUDE_SRC=false
+            ;;
         --repository)
             require_value "$1" "${2:-}"
             REPOSITORY="$2"
@@ -148,8 +153,10 @@ done
 validate_host_platform
 target_supports_platform || fail "$TARGET is not supported on $HOST_PLATFORM"
 
-add_asset "$PREBUILTS_DIR/src/src.${TARGET}.tar.zst" \
-    "src.${TARGET}.tar.zst"
+if [[ "$INCLUDE_SRC" == true ]]; then
+    add_asset "$PREBUILTS_DIR/src/src.${TARGET}.tar.zst" \
+        "src.${TARGET}.tar.zst"
+fi
 add_asset "$PREBUILTS_DIR/kdir/${HOST_PLATFORM}/kdir.${TARGET}.tar.zst" \
     "kdir.${HOST_PLATFORM}.${TARGET}.tar.zst"
 

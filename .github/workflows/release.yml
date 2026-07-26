@@ -1,174 +1,299 @@
+# Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
+
 name: Build and Release Droid DDK
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: 可选；只构建 mapping.json 中的一个 Android 目标
+        description: Optional Android target from mapping.json; empty builds all targets
         required: false
         default: ""
         type: string
 
 jobs:
   prepare:
+    name: Prepare release matrices
     runs-on: ubuntu-24.04
     outputs:
-      matrix: ${{ steps.gen.outputs.matrix }}
+      build_matrix: ${{ steps.generate.outputs.build_matrix }}
+      target_matrix: ${{ steps.generate.outputs.target_matrix }}
+      platform_matrix: ${{ steps.generate.outputs.platform_matrix }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           submodules: false
-      - name: Generate matrix from mapping.json
-        id: gen
+          lfs: false
+
+      - name: Generate release matrices
+        id: generate
         uses: actions/github-script@v7
         env:
           TARGET: ${{ inputs.target }}
         with:
           script: |
             const fs = require('fs');
-            const raw = fs.readFileSync('mapping.json', 'utf8');
-            const data = JSON.parse(raw);
+            const mapping = JSON.parse(fs.readFileSync('mapping.json', 'utf8'));
             const requestedTarget = process.env.TARGET.trim();
-            const matrix = (data.matrix || [])
-              .filter(m => (m.platforms || []).includes('linux-amd64'))
-              .filter(m => !requestedTarget || m.android === requestedTarget)
-              .map(m => ({
-                source_name: m.android,
-                clang_name: m.clang,
-              }));
-            if (requestedTarget && matrix.length === 0) {
-              core.setFailed(`linux-amd64 does not support target: ${requestedTarget}`);
+            const platforms = {
+              'linux-amd64': {
+                runner: 'ubuntu-24.04',
+                docker_platform: 'linux/amd64',
+              },
+              'linux-arm64': {
+                runner: 'ubuntu-24.04-arm',
+                docker_platform: 'linux/arm64',
+              },
+            };
+            const platformNames = Object.keys(platforms);
+            const targets = (mapping.matrix || [])
+              .filter(entry => platformNames.every(platform => (entry.platforms || []).includes(platform)))
+              .filter(entry => !requestedTarget || entry.android === requestedTarget);
+            if (requestedTarget && targets.length === 0) {
+              core.setFailed(`target does not support both native platforms: ${requestedTarget}`);
               return;
             }
-            core.setOutput('matrix', JSON.stringify(matrix));
-  
-  builder:
+            const buildMatrix = targets.flatMap(entry =>
+              platformNames.map(platform => ({
+                target: entry.android,
+                rust: entry.rust || '',
+                host_platform: platform,
+                ...platforms[platform],
+              })),
+            );
+            const targetMatrix = targets.map(entry => ({ target: entry.android }));
+            const platformMatrix = platformNames.map(platform => ({
+              host_platform: platform,
+              ...platforms[platform],
+            }));
+            core.setOutput('build_matrix', JSON.stringify(buildMatrix));
+            core.setOutput('target_matrix', JSON.stringify(targetMatrix));
+            core.setOutput('platform_matrix', JSON.stringify(platformMatrix));
+
+  builders:
+    name: Builder (${{ matrix.host_platform }})
     needs: prepare
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.platform_matrix) }}
     steps:
-    - name: Maximize build space
-      run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
           submodules: false
           lfs: false
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-    - name: Build image
-      run: |
-        make -C docker builder PUSH=1
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push native builder image
+        run: |
+          make -C docker builder \
+            HOST_PLATFORM="${{ matrix.host_platform }}" \
+            PLAT="${{ matrix.docker_platform }}" \
+            BUILDER_TAG="${{ matrix.host_platform }}" \
+            PUSH=1
+
+  merge-builder:
+    name: Publish multi-platform builder image
+    needs: builders
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Merge and verify builder manifests
+        run: |
+          image="docker.io/fsx199/droid-ddk-builder"
+          docker buildx imagetools create \
+            --tag "$image:latest" \
+            "$image:linux-amd64" \
+            "$image:linux-arm64"
+          docker buildx imagetools inspect --raw "$image:latest" | \
+            jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
 
   toolchains:
-    needs: [prepare, builder]
+    name: Toolchain ${{ matrix.target }} (${{ matrix.host_platform }})
+    needs: [prepare, merge-builder]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
+    steps:
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+          lfs: false
+
+      - name: Prepare toolchain prebuilts
+        run: |
+          mkdir -p prebuilts
+          if [[ "${{ matrix.host_platform }}" == "linux-amd64" && -n "${{ matrix.rust }}" ]]; then
+            build/fetch-prebuilts.sh \
+              --host-platform "${{ matrix.host_platform }}" \
+              --target-rust "${{ matrix.target }}"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push native toolchain image
+        run: |
+          make -C docker toolchains \
+            VER="${{ matrix.target }}" \
+            HOST_PLATFORM="${{ matrix.host_platform }}" \
+            PLAT="${{ matrix.docker_platform }}" \
+            TAG_SUFFIX="-${{ matrix.host_platform }}" \
+            PUSH=1
+
+  merge-toolchains:
+    name: Toolchain manifest ${{ matrix.target }}
+    needs: [prepare, toolchains]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+        include: ${{ fromJson(needs.prepare.outputs.target_matrix) }}
     steps:
-    - name: Maximize build space
-      run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Merge and verify toolchain manifests
+        run: |
+          image="docker.io/fsx199/droid-ddk-toolchain:${{ matrix.target }}"
+          docker buildx imagetools create \
+            --tag "$image" \
+            "$image-linux-amd64" \
+            "$image-linux-arm64"
+          docker buildx imagetools inspect --raw "$image" | \
+            jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+
+  build-images:
+    name: DDK ${{ matrix.target }} (${{ matrix.host_platform }})
+    needs: [prepare, merge-toolchains]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
+    steps:
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
           submodules: false
           lfs: false
 
-    - name: Download toolchain prebuilts
-      run: |
-        build/fetch-prebuilts.sh \
-          --host-platform linux-amd64 \
-          --target-rust "${{ matrix.source_name }}"
+      - name: Download kernel prebuilts
+        run: |
+          build/fetch-prebuilts.sh \
+            --host-platform "${{ matrix.host_platform }}" \
+            --target "${{ matrix.target }}" \
+            --kdir-min
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-    - name: Build image
-      run: |
-        make -C docker toolchains \
-          VER="${{ matrix.source_name }}" \
-          TAG_SUFFIX=-linux-amd64 \
-          PUSH=1
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Publish multi-platform image
-      run: |
-        image="docker.io/fsx199/droid-ddk-toolchain:${{ matrix.source_name }}"
-        docker buildx imagetools create \
-          --tag "$image" \
-          "${image}-linux-arm64" \
-          "${image}-linux-amd64"
-        docker buildx imagetools inspect --raw "$image" | \
-          jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64"))'
-  
-  build:
-    needs: ["prepare", "toolchains"]
+      - name: Build and push native DDK images
+        run: |
+          common_args=(
+            VER="${{ matrix.target }}"
+            HOST_PLATFORM="${{ matrix.host_platform }}"
+            PLAT="${{ matrix.docker_platform }}"
+            TAG_SUFFIX="-${{ matrix.host_platform }}"
+            PUSH=1
+          )
+          make -C docker build "${common_args[@]}"
+          make -C docker build-min "${common_args[@]}"
+
+  merge-images:
+    name: DDK manifests ${{ matrix.target }}
+    needs: [prepare, build-images]
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
-
+        include: ${{ fromJson(needs.prepare.outputs.target_matrix) }}
     steps:
-    - name: Maximize build space
-      run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-          submodules: false
-          lfs: false
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Download kernel prebuilts
-      run: |
-        build/fetch-prebuilts.sh \
-          --host-platform linux-amd64 \
-          --target "${{ matrix.source_name }}"
-        ls -al prebuilts/src/
-        ls -al prebuilts/kdir/linux-amd64/
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Build image
-      run: |
-        make -C docker build \
-          VER=${{ matrix.source_name }} \
-          TAG_SUFFIX=-linux-amd64 \
-          PUSH=1
-
-    - name: Publish multi-platform image
-      run: |
-        image="docker.io/fsx199/droid-ddk:${{ matrix.source_name }}"
-        docker buildx imagetools create \
-          --tag "$image" \
-          "${image}-linux-arm64" \
-          "${image}-linux-amd64"
-        docker buildx imagetools inspect --raw "$image" | \
-          jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64"))'
+      - name: Merge and verify DDK manifests
+        run: |
+          for repository in droid-ddk droid-ddk-min; do
+            image="docker.io/fsx199/${repository}:${{ matrix.target }}"
+            docker buildx imagetools create \
+              --tag "$image" \
+              "$image-linux-amd64" \
+              "$image-linux-arm64"
+            docker buildx imagetools inspect --raw "$image" | \
+              jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+          done
