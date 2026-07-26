@@ -64,6 +64,35 @@ dddk clean --module "$PWD/my-driver"
 
 命令行`--target`优先级高于`.ddk-version`，后者优先级高于`DDK_TARGET`环境变量。通过`--platform linux/amd64`或`--platform linux/arm64`可以显式选择镜像架构。
 
+## 在GitHub Actions中编译
+
+`feicong/android-kernel-build-action@v2`使用`dddk`编译ARM64外部内核模块。先上传模块源码Artifact，再调用Action：
+
+```yaml
+jobs:
+  upload-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hello-ko
+          path: path/to/hello-ko
+
+  build-module:
+    needs: upload-module
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: feicong/android-kernel-build-action@v2
+        with:
+          tag: android17-6.18
+          arch: aarch64
+          module-path: hello-ko
+          module-name: hello-ko
+```
+
+模块目录需包含`Makefile`与同名`.c`文件。输出Artifact名为`Image-TAG-ARCH`，其中的模块文件名为`TAG_MODULE_NAME.ko`。
+
 ## 致谢
 
 项目fork自Ylarod/ddk。

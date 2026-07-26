@@ -64,6 +64,35 @@ dddk clean --module "$PWD/my-driver"
 
 `--target` takes precedence over `.ddk-version`, which takes precedence over the `DDK_TARGET` environment variable. Set `DDK_ROOT` to override the local DDK installation path. Use `--platform linux/amd64` or `--platform linux/arm64` to select an image architecture explicitly.
 
+## Build in GitHub Actions
+
+`feicong/android-kernel-build-action@v2` uses `dddk` to build ARM64 external kernel modules. Upload the module source artifact, then invoke the action:
+
+```yaml
+jobs:
+  upload-module:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hello-ko
+          path: path/to/hello-ko
+
+  build-module:
+    needs: upload-module
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: feicong/android-kernel-build-action@v2
+        with:
+          tag: android17-6.18
+          arch: aarch64
+          module-path: hello-ko
+          module-name: hello-ko
+```
+
+The module directory must contain a `Makefile` and a matching `.c` file. The output artifact is named `Image-TAG-ARCH` and contains `TAG_MODULE_NAME.ko`.
+
 ## Credits
 
 Forked from Ylarod/ddk.
