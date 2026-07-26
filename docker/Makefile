@@ -10,6 +10,7 @@ endif
 BINDGEN_VER := $(shell jq -r '.platforms["linux-arm64"].rust.bindgenVersion' $(ROOT)/mapping.json)
 
 REG ?= docker.io/fsx199
+MIRROR_REG ?=
 IMG ?= droid-ddk
 PUSH ?= 0
 FORCE ?= 0
@@ -33,6 +34,7 @@ PLATFORMS ?= $(PLAT)
 MATRIX := $(shell jq -r --arg platform "$(HOST_PLATFORM)" --arg version "$(VER)" '.matrix[] | select((.platforms | index($$platform)) and ($$version == "" or .android == $$version)) | "\(.android):\(.clang):\(.rust // ""):\(.ndk // "")"' $(ROOT)/mapping.json | tr '\n' ' ')
 
 BUILDER_IMAGE := $(REG)/droid-ddk-builder:$(BUILDER_TAG)
+BUILDER_MIRROR_TAG := $(if $(strip $(MIRROR_REG)),-t $(MIRROR_REG)/droid-ddk-builder:$(BUILDER_TAG),)
 TOOLCHAIN_IMAGE := $(REG)/droid-ddk-toolchain
 MIN_IMAGE := $(REG)/droid-ddk-min
 DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -53,7 +55,7 @@ builder:
 	@echo "==> Building $(BUILDER_IMAGE) for $(if $(filter 1,$(PUSH)),$(PLATFORMS),$(PLAT))"
 	DOCKER_BUILDKIT=$(BUILDKIT) $(DOCKER) buildx build $(BUILD_OUTPUT) \
 	  -f $(ROOT)/docker/ddk-builder/Dockerfile \
-	  -t $(BUILDER_IMAGE) $(ROOT)
+	  -t $(BUILDER_IMAGE) $(BUILDER_MIRROR_TAG) $(ROOT)
 
 check-matrix:
 	@if [ -z "$(strip $(MATRIX))" ]; then echo "当前宿主平台不支持VER=$(VER)"; exit 2; fi
@@ -70,6 +72,8 @@ toolchains: check-matrix
 	  NDK_ROOT=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].root' $(ROOT)/mapping.json); \
 	  NDK_ARCHIVE_TYPE=$$(jq -r --arg platform "$(HOST_PLATFORM)" --arg ndk "$$NDK" '.platforms[$$platform].ndks[$$ndk].archiveType' $(ROOT)/mapping.json); \
 	  KERNEL_HOSTCFLAGS=$$(jq -r --arg android "$$ANDROID" '.matrix[] | select(.android == $$android) | .hostCFlags // ""' $(ROOT)/mapping.json); \
+	  MIRROR_TAG=""; \
+	  if [ -n "$(MIRROR_REG)" ]; then MIRROR_TAG="-t $(MIRROR_REG)/droid-ddk-toolchain:$$ANDROID$(TAG_SUFFIX)"; fi; \
 	  if [ "$$NDK_URL" = "null" ] || [ "$$NDK_SHA256" = "null" ] || [ "$$NDK_ROOT" = "null" ] || [ "$$NDK_ARCHIVE_TYPE" = "null" ]; then echo "NDK configuration missing for $$NDK on $(HOST_PLATFORM)"; exit 2; fi; \
 	  NDK_ARGS="--build-arg NDK_VERSION=$$NDK --build-arg NDK_URL=$$NDK_URL --build-arg NDK_SHA256=$$NDK_SHA256 --build-arg NDK_ROOT=$$NDK_ROOT --build-arg NDK_ARCHIVE_TYPE=$$NDK_ARCHIVE_TYPE"; \
 	  if [ "$(FORCE)" = "1" ] || ! $(DOCKER) image inspect $(TOOLCHAIN_IMAGE):$$ANDROID$(TAG_SUFFIX) >/dev/null 2>&1; then \
@@ -82,7 +86,7 @@ toolchains: check-matrix
 	      --build-arg KERNEL_HOSTCFLAGS="$$KERNEL_HOSTCFLAGS" \
 	      $$NDK_ARGS \
 	      -f $(ROOT)/docker/ddk-toolchain/Dockerfile \
-	      -t $(TOOLCHAIN_IMAGE):$$ANDROID$(TAG_SUFFIX) $(ROOT) || exit $$?; \
+	      -t $(TOOLCHAIN_IMAGE):$$ANDROID$(TAG_SUFFIX) $$MIRROR_TAG $(ROOT) || exit $$?; \
 	  fi; \
 	done
 
@@ -108,7 +112,8 @@ build:
 	  --build-arg REVISION=$(REV) \
 	  --build-arg CREATED=$(DATE) \
 	  -f $(ROOT)/docker/ddk/Dockerfile \
-	  -t $(REG)/$(IMG):$(VER)$(TAG_SUFFIX) $(ROOT)
+	  -t $(REG)/$(IMG):$(VER)$(TAG_SUFFIX) \
+	  $(if $(strip $(MIRROR_REG)),-t $(MIRROR_REG)/$(IMG):$(VER)$(TAG_SUFFIX),) $(ROOT)
 
 build-all:
 	@for pair in $(MATRIX); do \
@@ -132,7 +137,8 @@ build-min:
 	  --build-arg REVISION=$(REV) \
 	  --build-arg CREATED=$(DATE) \
 	  -f $(ROOT)/docker/ddk-min/Dockerfile \
-	  -t $(MIN_IMAGE):$(VER)$(TAG_SUFFIX) $(ROOT)
+	  -t $(MIN_IMAGE):$(VER)$(TAG_SUFFIX) \
+	  $(if $(strip $(MIRROR_REG)),-t $(MIRROR_REG)/droid-ddk-min:$(VER)$(TAG_SUFFIX),) $(ROOT)
 
 build-min-all:
 	@for pair in $(MATRIX); do \

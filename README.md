@@ -23,7 +23,7 @@ cd droid-ddk
 sudo ./host/install.sh
 ```
 
-首次运行选择`docker`模式与`docker`镜像源。Docker Hub镜像位于`docker.io/fsx199/droid-ddk`，`dddk`会按宿主架构自动拉取x86_64或ARM64镜像。
+首次运行选择`docker`模式。镜像同时发布到Docker Hub的`docker.io/fsx199/droid-ddk`与GHCR的`ghcr.io/feicong/droid-ddk`；镜像源选择`docker`或`github`即可，`dddk`会按宿主架构自动拉取x86_64或ARM64镜像。
 
 ```bash
 dddk update

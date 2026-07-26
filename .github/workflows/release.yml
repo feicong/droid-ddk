@@ -11,6 +11,10 @@ on:
         default: ""
         type: string
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   prepare:
     name: Prepare release matrices
@@ -103,12 +107,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Build and push native builder image
         run: |
           make -C docker builder \
             HOST_PLATFORM="${{ matrix.host_platform }}" \
             PLAT="${{ matrix.docker_platform }}" \
             BUILDER_TAG="${{ matrix.host_platform }}" \
+            MIRROR_REG=ghcr.io/feicong \
             PUSH=1
 
   merge-builder:
@@ -125,15 +137,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Merge and verify builder manifests
         run: |
-          image="docker.io/fsx199/droid-ddk-builder"
-          docker buildx imagetools create \
-            --tag "$image:latest" \
-            "$image:linux-amd64" \
-            "$image:linux-arm64"
-          docker buildx imagetools inspect --raw "$image:latest" | \
-            jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+          for registry in docker.io/fsx199 ghcr.io/feicong; do
+            image="${registry}/droid-ddk-builder"
+            docker buildx imagetools create \
+              --tag "$image:latest" \
+              "$image:linux-amd64" \
+              "$image:linux-arm64"
+            docker buildx imagetools inspect --raw "$image:latest" | \
+              jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+          done
 
   toolchains:
     name: Toolchain ${{ matrix.target }} (${{ matrix.host_platform }})
@@ -178,6 +199,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Build and push native toolchain image
         run: |
           make -C docker toolchains \
@@ -185,6 +213,7 @@ jobs:
             HOST_PLATFORM="${{ matrix.host_platform }}" \
             PLAT="${{ matrix.docker_platform }}" \
             TAG_SUFFIX="-${{ matrix.host_platform }}" \
+            MIRROR_REG=ghcr.io/feicong \
             PUSH=1
 
   merge-toolchains:
@@ -205,15 +234,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Merge and verify toolchain manifests
         run: |
-          image="docker.io/fsx199/droid-ddk-toolchain:${{ matrix.target }}"
-          docker buildx imagetools create \
-            --tag "$image" \
-            "$image-linux-amd64" \
-            "$image-linux-arm64"
-          docker buildx imagetools inspect --raw "$image" | \
-            jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+          for registry in docker.io/fsx199 ghcr.io/feicong; do
+            image="${registry}/droid-ddk-toolchain:${{ matrix.target }}"
+            docker buildx imagetools create \
+              --tag "$image" \
+              "$image-linux-amd64" \
+              "$image-linux-arm64"
+            docker buildx imagetools inspect --raw "$image" | \
+              jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+          done
 
   build-images:
     name: DDK ${{ matrix.target }} (${{ matrix.host_platform }})
@@ -256,6 +294,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Build and push native DDK images
         run: |
           common_args=(
@@ -263,6 +308,7 @@ jobs:
             HOST_PLATFORM="${{ matrix.host_platform }}"
             PLAT="${{ matrix.docker_platform }}"
             TAG_SUFFIX="-${{ matrix.host_platform }}"
+            MIRROR_REG=ghcr.io/feicong
             PUSH=1
           )
           make -C docker build "${common_args[@]}"
@@ -286,14 +332,23 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       - name: Merge and verify DDK manifests
         run: |
-          for repository in droid-ddk droid-ddk-min; do
-            image="docker.io/fsx199/${repository}:${{ matrix.target }}"
-            docker buildx imagetools create \
-              --tag "$image" \
-              "$image-linux-amd64" \
-              "$image-linux-arm64"
-            docker buildx imagetools inspect --raw "$image" | \
-              jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+          for registry in docker.io/fsx199 ghcr.io/feicong; do
+            for repository in droid-ddk droid-ddk-min; do
+              image="${registry}/${repository}:${{ matrix.target }}"
+              docker buildx imagetools create \
+                --tag "$image" \
+                "$image-linux-amd64" \
+                "$image-linux-arm64"
+              docker buildx imagetools inspect --raw "$image" | \
+                jq -e '([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("amd64")) and ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | index("arm64"))'
+            done
           done
