@@ -2,27 +2,37 @@
 # Copyright (c) 2025-2026 fei_cong(https://github.com/feicong/feicong-course)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPOSITORY="${DROID_DDK_REPOSITORY:-feicong/droid-ddk}"
+REF="${DROID_DDK_REF:-main}"
+RAW_BASE="${DROID_DDK_RAW_BASE:-https://raw.githubusercontent.com/$REPOSITORY/$REF}"
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || {
+        printf '缺少命令：%s\n' "$1" >&2
+        exit 1
+    }
+}
 
 install_dddk() {
     local bin_dir="${DROID_DDK_BIN_DIR:-/usr/local/bin}"
-    local lib_dir="${DROID_DDK_LIB_DIR:-/usr/local/lib/droid-ddk}"
-    local bin_parent lib_parent
-    bin_parent=$(dirname "$bin_dir")
-    lib_parent=$(dirname "$lib_dir")
+    local download_dir
+    download_dir=$(mktemp -d)
+    trap 'rm -rf "$download_dir"' EXIT
 
-    if [[ -w "$bin_parent" && -w "$lib_parent" ]]; then
-        install -d -m 0755 "$bin_dir" "$lib_dir"
-        install -m 0755 "$PROJECT_ROOT/scripts/dddk" "$bin_dir/dddk"
-        install -m 0755 "$PROJECT_ROOT/scripts/lib/platform.sh" "$lib_dir/platform.sh"
+    curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+        --output "$download_dir/dddk" "$RAW_BASE/scripts/dddk"
+    if [[ "$EUID" -eq 0 ]]; then
+        install -d -m 0755 "$bin_dir"
+        install -m 0755 "$download_dir/dddk" "$bin_dir/dddk"
     else
-        sudo install -d -m 0755 "$bin_dir" "$lib_dir"
-        sudo install -m 0755 "$PROJECT_ROOT/scripts/dddk" "$bin_dir/dddk"
-        sudo install -m 0755 "$PROJECT_ROOT/scripts/lib/platform.sh" "$lib_dir/platform.sh"
+        require_command sudo
+        sudo install -d -m 0755 "$bin_dir"
+        sudo install -m 0755 "$download_dir/dddk" "$bin_dir/dddk"
     fi
 
     printf '[+] 已安装命令：%s/dddk\n' "$bin_dir"
+    rm -rf "$download_dir"
+    trap - EXIT
 }
 
 main() {
@@ -30,6 +40,9 @@ main() {
         printf 'dddk仅支持Linux宿主机\n' >&2
         exit 2
     }
+    require_command curl
+    require_command install
+    require_command mktemp
     install_dddk
 }
 

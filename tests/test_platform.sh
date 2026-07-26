@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/lib/platform.sh"
+source "$ROOT/scripts/dddk"
 
 assert_eq() {
 	[[ "$1" == "$2" ]] || {

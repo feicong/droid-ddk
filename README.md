@@ -18,9 +18,7 @@
 ## 安装`dddk`
 
 ```bash
-git clone https://github.com/feicong/droid-ddk.git
-cd droid-ddk
-sudo ./host/install.sh
+curl -fsSL https://raw.githubusercontent.com/feicong/droid-ddk/main/host/install.sh | sudo bash
 ```
 
 首次运行选择`docker`模式。镜像同时发布到Docker Hub的`docker.io/fsx199/droid-ddk`与GHCR的`ghcr.io/feicong/droid-ddk`；镜像源选择`docker`或`github`即可，`dddk`会按宿主架构自动拉取x86_64或ARM64镜像。

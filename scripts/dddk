@@ -31,21 +31,73 @@ set -euo pipefail
 #   3. DROID_DDK_TARGET environment variable
 #
 # ============================================================================
+# Platform Functions
+# ============================================================================
+
+droid_ddk_normalize_machine() {
+  case "$1" in
+    x86_64|amd64)
+      printf '%s\n' linux-amd64
+      ;;
+    aarch64|arm64)
+      printf '%s\n' linux-arm64
+      ;;
+    *)
+      printf '不支持的Linux宿主架构：%s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+droid_ddk_host_platform() {
+  droid_ddk_normalize_machine "$(uname -m)"
+}
+
+droid_ddk_normalize_platform() {
+  case "$1" in
+    linux-amd64|linux/amd64)
+      printf '%s\n' linux-amd64
+      ;;
+    linux-arm64|linux/arm64)
+      printf '%s\n' linux-arm64
+      ;;
+    *)
+      printf '不支持的平台：%s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+droid_ddk_docker_platform() {
+  case "$1" in
+    linux-amd64)
+      printf '%s\n' linux/amd64
+      ;;
+    linux-arm64)
+      printf '%s\n' linux/arm64
+      ;;
+    *)
+      printf '不支持的平台：%s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+droid_ddk_artifact_platform() {
+  case "$1" in
+    linux-amd64|linux-arm64)
+      printf '%s\n' "$1"
+      ;;
+    *)
+      printf '不支持的产物平台：%s\n' "$1" >&2
+      return 2
+      ;;
+  esac
+}
+
+# ============================================================================
 # Global Variables
 # ============================================================================
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -n "${DROID_DDK_LIB_DIR:-}" ]]; then
-  PLATFORM_LIB="$DROID_DDK_LIB_DIR/platform.sh"
-elif [[ -f "$SCRIPT_DIR/lib/platform.sh" ]]; then
-  PLATFORM_LIB="$SCRIPT_DIR/lib/platform.sh"
-else
-  PLATFORM_LIB="/usr/local/lib/droid-ddk/platform.sh"
-fi
-if [[ ! -f "$PLATFORM_LIB" ]]; then
-  echo "Error: platform library not found: $PLATFORM_LIB" >&2
-  exit 1
-fi
-source "$PLATFORM_LIB"
 
 prog=$(basename "$0")
 DROID_DDK_CONFIG_DIR="$HOME/.droid-ddk"
@@ -945,32 +997,26 @@ update_self() {
   script_path=$(readlink -f "$script_path" 2>/dev/null || realpath "$script_path" 2>/dev/null || echo "$script_path")
 
   local script_url
-  local platform_url
   case "$SOURCE" in
     cnb)
       script_url="$REPO_CNB/scripts/dddk?download=true"
-      platform_url="$REPO_CNB/scripts/lib/platform.sh?download=true"
       ;;
     github|docker|*)
       script_url="$REPO_GITHUB/scripts/dddk"
-      platform_url="$REPO_GITHUB/scripts/lib/platform.sh"
       ;;
   esac
 
   echo "Updating dddk at: $script_path"
-  echo "Updating platform library at: $PLATFORM_LIB"
 
   local temp_dir
   temp_dir=$(mktemp -d)
-  if ! curl -fsSL "$script_url" -o "$temp_dir/dddk" || \
-     ! curl -fsSL "$platform_url" -o "$temp_dir/platform.sh"; then
+  if ! curl -fsSL "$script_url" -o "$temp_dir/dddk"; then
     rm -rf "$temp_dir"
     echo "Error: failed to download dddk update" >&2
     return 1
   fi
 
-  if ! install_update_file "$temp_dir/platform.sh" "$PLATFORM_LIB" || \
-     ! install_update_file "$temp_dir/dddk" "$script_path"; then
+  if ! install_update_file "$temp_dir/dddk" "$script_path"; then
     rm -rf "$temp_dir"
     echo "Error: failed to install dddk update" >&2
     return 1
@@ -1187,4 +1233,6 @@ main() {
 # Entry Point
 # ============================================================================
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
