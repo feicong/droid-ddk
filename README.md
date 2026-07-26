@@ -1,4 +1,4 @@
-# Droid DDK
+# Droid DDK - dddk
 
 `droid-ddk`提供Android ACK外部内核模块编译镜像。x86_64宿主机自动使用Google官方x86_64 NDK，ARM64宿主机自动使用SnowNF ARM64 NDK，镜像构建环境为Ubuntu 26.04。
 
