@@ -53,6 +53,14 @@ RUN --mount=type=bind,source=prebuilts,target=/mnt/prebuilts,readonly \
       test ! -L "$recorded_src"; \
       mkdir -p "$(dirname "$recorded_src")"; \
       ln -s "$kernel_src" "$recorded_src"; \
+    fi; \
+    recorded_out="$(sed -n 's|^export KBUILD_OUTPUT[[:space:]]*=[[:space:]]*||p' "$kernel_out/Makefile")"; \
+    if [ -n "$recorded_out" ] && [ "$recorded_out" != "$kernel_out" ]; then \
+      case "$recorded_out" in /*) ;; *) exit 2 ;; esac; \
+      test ! -e "$recorded_out"; \
+      test ! -L "$recorded_out"; \
+      mkdir -p "$(dirname "$recorded_out")"; \
+      ln -s "$kernel_out" "$recorded_out"; \
     fi
 
 ENV DDK_ROOT=/opt/droid-ddk \
@@ -60,7 +68,7 @@ ENV DDK_ROOT=/opt/droid-ddk \
     ARCH=arm64 \
     LLVM=1 \
     LLVM_IAS=1 \
-    KERNEL_SRC=/opt/droid-ddk/kdir/linux-${TARGETARCH}/${ANDROID_VER} \
+    KERNEL_SRC=/opt/droid-ddk/src/${ANDROID_VER} \
     KDIR=/opt/droid-ddk/kdir/linux-${TARGETARCH}/${ANDROID_VER} \
     CLANG_PATH=/opt/droid-ddk/toolchain/bin \
     PATH=/opt/droid-ddk/toolchain/bin:/opt/droid-ddk/.cargo/bin:$PATH

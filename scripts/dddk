@@ -662,6 +662,7 @@ setup_local_env() {
   export DDK_ORIGINAL_PATH="$PATH"
 
   # Setup DDK environment
+  export KERNEL_SRC="$DDK_ROOT/src/$target"
   export KDIR="$DDK_ROOT/kdir/$DROID_DDK_PLATFORM/$target"
   if [[ "$toolchain_kind" == "aosp-clang" ]]; then
     export CLANG_PATH="$DDK_ROOT/clang/$clang/bin"
@@ -699,8 +700,13 @@ setup_local_env() {
   fi
 
   # Verify directories exist
+  if [[ ! -d "$KERNEL_SRC" ]]; then
+    echo "Error: Kernel source directory not found: $KERNEL_SRC" >&2
+    exit 1
+  fi
+
   if [[ ! -d "$KDIR" ]]; then
-    echo "Error: Kernel source directory not found: $KDIR" >&2
+    echo "Error: Kernel build directory not found: $KDIR" >&2
     exit 1
   fi
 
@@ -717,6 +723,7 @@ setup_local_env() {
   fi
 
   echo "Environment setup:"
+  echo "  KERNEL_SRC=$KERNEL_SRC"
   echo "  KDIR=$KDIR"
   echo "  CLANG_PATH=$CLANG_PATH"
   if [[ -n "${RUST_PATH:-}" ]]; then
@@ -744,6 +751,7 @@ restore_local_env() {
 
   # Unset DDK-specific variables
   unset KDIR
+  unset KERNEL_SRC
   unset CLANG_PATH
   unset RUST_PATH
   unset CROSS_COMPILE
@@ -778,7 +786,7 @@ local_build() {
 
   echo "Running make..."
   if [[ "$MODULE_MODE" == "true" ]]; then
-    run_local_make -C "$KDIR" M="$BUILD_DIR" modules
+    run_local_make -C "$KERNEL_SRC" O="$KDIR" M="$BUILD_DIR" modules
   else
     run_local_make
   fi
@@ -804,7 +812,7 @@ local_clean() {
 
   echo "Running make clean..."
   if [[ "$MODULE_MODE" == "true" ]]; then
-    run_local_make -C "$KDIR" M="$BUILD_DIR" clean
+    run_local_make -C "$KERNEL_SRC" O="$KDIR" M="$BUILD_DIR" clean
   else
     run_local_make clean
   fi
@@ -885,6 +893,7 @@ local_shell() {
 
   echo "Environment variables set:"
   echo "  DDK_ROOT=$DDK_ROOT"
+  echo "  KERNEL_SRC=$KERNEL_SRC"
   echo "  KDIR=$KDIR"
   echo "  CLANG_PATH=$CLANG_PATH"
   if [[ -n "${RUST_PATH:-}" ]]; then
@@ -1083,7 +1092,7 @@ cmd_build() {
   echo "Building in container: $image"
 
   if [[ "$MODULE_MODE" == "true" ]]; then
-    run_docker_make "$image" -C /kernel/out M=/build modules
+    run_docker_make "$image" -C /kernel/src O=/kernel/out M=/build modules
   else
     run_docker_make "$image"
   fi
@@ -1098,7 +1107,7 @@ cmd_clean() {
   local image="$IMAGE_BASE:${TARGET}"
   echo "Cleaning in container: $image"
   if [[ "$MODULE_MODE" == "true" ]]; then
-    run_docker_make "$image" -C /kernel/out M=/build clean
+    run_docker_make "$image" -C /kernel/src O=/kernel/out M=/build clean
   else
     run_docker_make "$image" clean
   fi
