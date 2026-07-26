@@ -7,6 +7,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -183,11 +184,30 @@ def extract_archive(archive, destination, archive_type):
                 candidate = (destination / member.filename).resolve()
                 if not candidate.is_relative_to(destination):
                     raise RuntimeError(f"归档包含越界路径：{member.filename}")
-            package.extractall(destination)
             for member in members:
-                mode = (member.external_attr >> 16) & 0o777
-                if mode:
-                    (destination / member.filename).chmod(mode)
+                extracted = destination / member.filename
+                resolved = extracted.resolve()
+                if not resolved.is_relative_to(destination):
+                    raise RuntimeError(f"归档包含越界路径：{member.filename}")
+                mode = member.external_attr >> 16
+                permissions = stat.S_IMODE(mode)
+                if member.is_dir():
+                    extracted.mkdir(parents=True, exist_ok=True)
+                    if permissions:
+                        extracted.chmod(permissions)
+                    continue
+                extracted.parent.mkdir(parents=True, exist_ok=True)
+                if stat.S_ISLNK(mode):
+                    link_target = package.read(member).decode()
+                    resolved_target = (extracted.parent / link_target).resolve()
+                    if not resolved_target.is_relative_to(destination):
+                        raise RuntimeError(f"归档符号链接越界：{member.filename}")
+                    extracted.symlink_to(link_target)
+                    continue
+                with package.open(member) as source, extracted.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+                if permissions:
+                    extracted.chmod(permissions)
         return
     if archive_type != "tar.gz":
         raise ValueError(f"不支持的NDK归档格式：{archive_type}")

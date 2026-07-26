@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -153,14 +154,22 @@ class BuildDroidDdkTest(unittest.TestCase):
         destination = root / "extract"
         destination.mkdir()
         with zipfile.ZipFile(archive, "w") as package:
-            clang = zipfile.ZipInfo(
+            clang_binary = zipfile.ZipInfo(
+                "android-ndk-r29/toolchains/llvm/bin/clang-14"
+            )
+            clang_binary.create_system = 3
+            clang_binary.external_attr = (stat.S_IFREG | 0o755) << 16
+            package.writestr(clang_binary, "#!/bin/sh\n")
+            clang_link = zipfile.ZipInfo(
                 "android-ndk-r29/toolchains/llvm/bin/clang"
             )
-            clang.external_attr = 0o100755 << 16
-            package.writestr(clang, "#!/bin/sh\n")
+            clang_link.create_system = 3
+            clang_link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            package.writestr(clang_link, "clang-14")
         BUILD.extract_archive(archive, destination, "zip")
         extracted = destination / "android-ndk-r29/toolchains/llvm/bin/clang"
-        self.assertTrue(extracted.is_file())
+        self.assertTrue(extracted.is_symlink())
+        self.assertEqual(extracted.readlink(), Path("clang-14"))
         self.assertEqual(extracted.stat().st_mode & 0o111, 0o111)
 
     def test_arm64_matrix_contains_android13_5_15_to_android17(self):
