@@ -55,6 +55,71 @@ docker.io/fsx199/droid-ddk:android17-6.18
 make -C docker build-min VER="$VER"
 ```
 
+## 使用镜像编译外部内核模块
+
+使用完整的`droid-ddk`镜像。镜像内`/kernel/out`包含与镜像版本匹配的内核构建目录、`Module.symvers`和`modpost`，`/kernel/src`指向对应内核源码。
+
+模块目录至少需要模块源码和`Makefile`。例如`my-driver/Makefile`：
+
+```make
+obj-m += my_driver.o
+```
+
+选择与目标设备内核一致的镜像并构建模块：
+
+```bash
+VER=android17-6.18
+IMAGE="docker.io/fsx199/droid-ddk:${VER}"
+MODULE_DIR="$PWD/my-driver"
+
+docker run --rm --platform linux/arm64 \
+    --user "$(id -u):$(id -g)" \
+    -v "${MODULE_DIR}:/module" \
+    -w /module \
+    "${IMAGE}" \
+    make -C /kernel/out M=/module modules
+```
+
+构建产物写入`$MODULE_DIR`。检查模块架构和与目标内核匹配的`vermagic`：
+
+```bash
+file "$MODULE_DIR/my_driver.ko"
+
+docker run --rm --platform linux/arm64 \
+    -v "${MODULE_DIR}:/module:ro" \
+    "${IMAGE}" \
+    modinfo -F vermagic /module/my_driver.ko
+```
+
+清理模块构建产物：
+
+```bash
+docker run --rm --platform linux/arm64 \
+    --user "$(id -u):$(id -g)" \
+    -v "${MODULE_DIR}:/module" \
+    -w /module \
+    "${IMAGE}" \
+    make -C /kernel/out M=/module clean
+```
+
+### 使用`dddk`管理模块构建
+
+在 Linux 宿主机执行`host/install.sh`后，`dddk`安装到`/usr/local/bin/dddk`。未安装时可以用`./scripts/dddk`替代下列命令。首次运行时选择`docker`模式和`docker`镜像源。
+
+`--module`会将模块目录挂载为`/build`，并自动执行`make -C /kernel/out M=/build`。构建产物按当前宿主用户写入模块目录：
+
+```bash
+VER=android17-6.18
+MODULE_DIR="$PWD/my-driver"
+
+dddk pull --target "$VER"
+dddk build --target "$VER" --module "$MODULE_DIR"
+dddk build --target "$VER" --module "$MODULE_DIR" -- -j8 V=1
+dddk clean --target "$VER" --module "$MODULE_DIR"
+```
+
+命令未指定`--target`时，`dddk`依次读取`.droid-ddk-version`和`DROID_DDK_TARGET`。`--`之后的参数会原样传给`make`。
+
 ## 构建不同版本
 
 修改 `VER` 即可逐个构建：

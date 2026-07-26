@@ -60,6 +60,9 @@ SOURCE=""
 IMAGE_BASE=""
 CMD=""
 TARGET=""
+MODULE_DIR=""
+BUILD_DIR=""
+MODULE_MODE=false
 MAKE_ARGS=()
 ENV_VARS=()
 DOCKER_COMMON_ARGS=()
@@ -86,7 +89,7 @@ resolve_docker_platform() {
     DROID_DDK_PLATFORM=$(droid_ddk_normalize_platform "$DROID_DDK_PLATFORM")
   fi
   DOCKER_PLATFORM=$(droid_ddk_docker_platform "$DROID_DDK_PLATFORM")
-  DOCKER_COMMON_ARGS=(--platform "$DOCKER_PLATFORM" --rm -v "$(pwd)":/build -w /build)
+  DOCKER_COMMON_ARGS=(--platform "$DOCKER_PLATFORM" --rm -v "$BUILD_DIR":/build -w /build)
 }
 
 usage() {
@@ -97,13 +100,13 @@ Commands:
   list                                        List all pulled Droid DDK images
   list-all                                    List all available Droid DDK targets from repository
   pull <target>|--target <target>             Pull the configured droid-ddk:<target> image
-  build [<target>] [--target <target>] [-- <make-args>]
+  build [<target>] [--target <target>] [--module <dir>] [-- <make-args>]
                                               Run 'make' inside container (for building)
-  clean [<target>] [--target <target>]
+  clean [<target>] [--target <target>] [--module <dir>] [-- <make-args>]
                                               Run 'make clean' inside container
-  compdb [<target>] [--target <target>]
+  compdb [<target>] [--target <target>] [-- <make-args>]
                                               Run 'make compdb' and update VSCode clangd settings
-  shell [<target>] [--target <target>]
+  shell [<target>] [--target <target>] [--module <dir>]
                                               Start an interactive shell in the container
   update                                      Update dddk and its platform library
 
@@ -112,6 +115,8 @@ Options:
                  (Priority: command arg > .droid-ddk-version file > DROID_DDK_TARGET env)
   --env, -e      pass environment variable (can be used multiple times)
                  Example: --env CONFIG_FOO=y -e CONFIG_BAR=n
+  --module, -m   external kernel module directory; build, clean and shell
+                 use the standard Kbuild command with this directory
   --platform     linux/amd64 or linux/arm64; defaults to the host architecture
   -h, --help     show this help
 
@@ -129,6 +134,8 @@ Examples:
   $prog build --target android17-6.18 -- CFLAGS=-O2
   $prog clean -t android17-6.18
   $prog compdb android17-6.18
+  $prog build -t android17-6.18 -m ./my-driver -- -j8
+  $prog clean -t android17-6.18 -m ./my-driver
   $prog shell android17-6.18
   $prog update
 
@@ -361,6 +368,20 @@ get_target_from_version_file() {
   return 0
 }
 
+resolve_build_dir() {
+  if [[ -n "$MODULE_DIR" ]]; then
+    if [[ ! -d "$MODULE_DIR" ]]; then
+      echo "Error: module directory not found: $MODULE_DIR" >&2
+      exit 2
+    fi
+    BUILD_DIR=$(cd "$MODULE_DIR" && pwd -P)
+    MODULE_MODE=true
+  else
+    BUILD_DIR=$(pwd -P)
+    MODULE_MODE=false
+  fi
+}
+
 # ============================================================================
 # Argument Parsing Functions
 # ============================================================================
@@ -377,6 +398,7 @@ parse_args() {
   shift
 
   TARGET=""
+  MODULE_DIR=""
   MAKE_ARGS=()
   ENV_VARS=()
 
@@ -387,6 +409,8 @@ parse_args() {
         TARGET="$2"; shift 2;;
       --env|-e)
         ENV_VARS+=("$2"); shift 2;;
+      --module|-m)
+        MODULE_DIR="$2"; shift 2;;
       --platform)
         DROID_DDK_PLATFORM=$(droid_ddk_normalize_platform "$2"); shift 2;;
       --help|-h)
@@ -680,6 +704,14 @@ restore_local_env() {
   unset HOSTCXX
 }
 
+run_local_make() {
+  if [[ ${#MAKE_ARGS[@]} -eq 0 ]]; then
+    make "$@"
+  else
+    make "$@" "${MAKE_ARGS[@]}"
+  fi
+}
+
 local_build() {
   echo "Building target: $TARGET"
   echo ""
@@ -687,10 +719,10 @@ local_build() {
   setup_local_env "$TARGET"
 
   echo "Running make..."
-  if [[ ${#MAKE_ARGS[@]} -eq 0 ]]; then
-    make
+  if [[ "$MODULE_MODE" == "true" ]]; then
+    run_local_make -C "$KDIR" M="$BUILD_DIR" modules
   else
-    make "${MAKE_ARGS[@]}"
+    run_local_make
   fi
 
   local build_result=$?
@@ -713,7 +745,11 @@ local_clean() {
   setup_local_env "$TARGET"
 
   echo "Running make clean..."
-  make clean
+  if [[ "$MODULE_MODE" == "true" ]]; then
+    run_local_make -C "$KDIR" M="$BUILD_DIR" clean
+  else
+    run_local_make clean
+  fi
 
   local clean_result=$?
   restore_local_env
@@ -736,7 +772,7 @@ local_compdb() {
   local clangd_path="$CLANG_PATH/clangd"
 
   echo "Running make compdb..."
-  make compdb
+  run_local_make compdb
 
   local compdb_result=$?
   restore_local_env
@@ -832,6 +868,10 @@ run_docker() {
   # run_docker [extra docker args...] -- <cmd...>
   local docker_args=("${DOCKER_COMMON_ARGS[@]}")
 
+  if [[ "$MODULE_MODE" == "true" ]]; then
+    docker_args+=(--user "$(id -u):$(id -g)")
+  fi
+
   # Add environment variables
   if [[ ${#ENV_VARS[@]} -gt 0 ]]; then
     for env_var in "${ENV_VARS[@]}"; do
@@ -845,6 +885,17 @@ run_docker() {
   done
   # remaining args are command to run
   docker run "${docker_args[@]}" "$IMAGE" "$@"
+}
+
+run_docker_make() {
+  local image="$1"
+  shift
+
+  if [[ ${#MAKE_ARGS[@]} -eq 0 ]]; then
+    IMAGE="$image" run_docker -- make "$@"
+  else
+    IMAGE="$image" run_docker -- make "$@" "${MAKE_ARGS[@]}"
+  fi
 }
 
 # ============================================================================
@@ -979,11 +1030,10 @@ cmd_build() {
   local image="$IMAGE_BASE:${TARGET}"
   echo "Building in container: $image"
 
-  # If MAKE_ARGS empty, just call make
-  if [[ ${#MAKE_ARGS[@]} -eq 0 ]]; then
-    IMAGE="$image" run_docker -- make
+  if [[ "$MODULE_MODE" == "true" ]]; then
+    run_docker_make "$image" -C /kernel/out M=/build modules
   else
-    IMAGE="$image" run_docker -- make "${MAKE_ARGS[@]}"
+    run_docker_make "$image"
   fi
 }
 
@@ -995,7 +1045,11 @@ cmd_clean() {
 
   local image="$IMAGE_BASE:${TARGET}"
   echo "Cleaning in container: $image"
-  IMAGE="$image" run_docker -- make clean
+  if [[ "$MODULE_MODE" == "true" ]]; then
+    run_docker_make "$image" -C /kernel/out M=/build clean
+  else
+    run_docker_make "$image" clean
+  fi
 }
 
 cmd_compdb() {
@@ -1006,7 +1060,7 @@ cmd_compdb() {
 
   local image="$IMAGE_BASE:${TARGET}"
   echo "Generating compilation database in container: $image"
-  IMAGE="$image" run_docker -- make compdb
+  run_docker_make "$image" compdb
 }
 
 cmd_shell() {
@@ -1018,7 +1072,7 @@ cmd_shell() {
   local image="$IMAGE_BASE:${TARGET}"
   echo "Starting interactive shell in: $image"
   # Prefer bash if available inside image, fall back to sh
-  docker run -it "${DOCKER_COMMON_ARGS[@]}" "$image" sh -c 'if [ -x /bin/bash ]; then exec /bin/bash; else exec /bin/sh; fi'
+  IMAGE="$image" run_docker -it -- sh -c 'if [ -x /bin/bash ]; then exec /bin/bash; else exec /bin/sh; fi'
 }
 
 # ============================================================================
@@ -1042,6 +1096,26 @@ main() {
 
   # Parse command and arguments
   parse_args "$@"
+
+  case "$CMD" in
+    build|clean|shell)
+      resolve_build_dir
+      ;;
+    compdb)
+      if [[ -n "$MODULE_DIR" ]]; then
+        echo "Error: --module is not supported by compdb" >&2
+        exit 2
+      fi
+      BUILD_DIR=$(pwd -P)
+      ;;
+    *)
+      if [[ -n "$MODULE_DIR" ]]; then
+        echo "Error: --module is only supported by build, clean and shell" >&2
+        exit 2
+      fi
+      BUILD_DIR=$(pwd -P)
+      ;;
+  esac
 
   case "$CMD" in
     list-all|update) ;;
