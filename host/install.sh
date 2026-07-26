@@ -15,23 +15,23 @@ require_command() {
 
 install_dddk() {
     local bin_dir="${DROID_DDK_BIN_DIR:-/usr/local/bin}"
-    local download_dir
-    download_dir=$(mktemp -d)
-    trap 'rm -rf "$download_dir"' EXIT
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    trap 'rm -rf "$temp_dir"' EXIT
 
     curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
-        --output "$download_dir/dddk" "$RAW_BASE/scripts/dddk"
+        --output "$temp_dir/dddk" "$RAW_BASE/scripts/dddk"
     if [[ "$EUID" -eq 0 ]]; then
         install -d -m 0755 "$bin_dir"
-        install -m 0755 "$download_dir/dddk" "$bin_dir/dddk"
+        install -m 0755 "$temp_dir/dddk" "$bin_dir/dddk"
     else
         require_command sudo
         sudo install -d -m 0755 "$bin_dir"
-        sudo install -m 0755 "$download_dir/dddk" "$bin_dir/dddk"
+        sudo install -m 0755 "$temp_dir/dddk" "$bin_dir/dddk"
     fi
 
     printf '[+] 已安装命令：%s/dddk\n' "$bin_dir"
-    rm -rf "$download_dir"
+    rm -rf "$temp_dir"
     trap - EXIT
 }
 

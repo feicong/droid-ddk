@@ -160,7 +160,7 @@ Commands:
                                               Run 'make compdb' and update VSCode clangd settings
   shell [<target>] [--target <target>] [--module <dir>]
                                               Start an interactive shell in the container
-  update                                      Update dddk and its platform library
+  update                                      Update the standalone dddk command
 
 Options:
   --target, -t   image tag like 'android17-6.18'

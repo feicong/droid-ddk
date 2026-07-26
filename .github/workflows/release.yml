@@ -34,12 +34,12 @@ jobs:
         id: generate
         uses: actions/github-script@v8
         env:
-          TARGET: ${{ inputs.target }}
+          REQUESTED_TARGET: ${{ inputs.target }}
         with:
           script: |
             const fs = require('fs');
             const mapping = JSON.parse(fs.readFileSync('mapping.json', 'utf8'));
-            const requestedTarget = process.env.TARGET.trim();
+            const requestedTarget = process.env.REQUESTED_TARGET.trim();
             const platforms = {
               'linux-amd64': {
                 runner: 'ubuntu-24.04',

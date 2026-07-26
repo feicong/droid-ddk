@@ -41,13 +41,13 @@ jobs:
         id: generate
         uses: actions/github-script@v8
         env:
-          TARGET: ${{ inputs.target }}
+          REQUESTED_TARGET: ${{ inputs.target }}
           REQUESTED_HOST_PLATFORM: ${{ inputs.host_platform }}
         with:
           script: |
             const fs = require('fs');
             const mapping = JSON.parse(fs.readFileSync('mapping.json', 'utf8'));
-            const requestedTarget = process.env.TARGET.trim();
+            const requestedTarget = process.env.REQUESTED_TARGET.trim();
             const requestedHostPlatform = process.env.REQUESTED_HOST_PLATFORM.trim();
             const platforms = {
               'linux-amd64': {
@@ -105,7 +105,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.prepare.outputs.matrix) }}
     env:
-      TARGET: ${{ matrix.target }}
+      ANDROID_TARGET: ${{ matrix.target }}
       RUST_VERSION: ${{ matrix.rust }}
       HOST_PLATFORM: ${{ matrix.host_platform }}
       DOCKER_PLATFORM: ${{ matrix.docker_platform }}
@@ -143,7 +143,7 @@ jobs:
           docker volume create "$WORK_VOLUME" >/dev/null
           docker run --rm \
             -e DROID_DDK_ROOT=/workspace/droid-ddk-work \
-            -e TARGET \
+            -e ANDROID_TARGET \
             -e RUST_VERSION \
             -e HOST_PLATFORM \
             -e INCLUDE_KDIR_MIN \
@@ -153,13 +153,13 @@ jobs:
             docker.io/fsx199/droid-ddk-builder:latest \
             bash -ceu '
               python3 build/build-droid-ddk.py setup-toolchain \
-                --host-platform "$HOST_PLATFORM" --android "$TARGET"
+                --host-platform "$HOST_PLATFORM" --android "$ANDROID_TARGET"
               python3 build/build-droid-ddk.py setup-src \
-                --host-platform "$HOST_PLATFORM" --android "$TARGET"
+                --host-platform "$HOST_PLATFORM" --android "$ANDROID_TARGET"
               python3 build/build-droid-ddk.py build \
-                --host-platform "$HOST_PLATFORM" --android "$TARGET"
+                --host-platform "$HOST_PLATFORM" --android "$ANDROID_TARGET"
 
-              pack_args=(--kdir --host-platform "$HOST_PLATFORM" --version "$TARGET")
+              pack_args=(--kdir --host-platform "$HOST_PLATFORM" --version "$ANDROID_TARGET")
               if [[ "$HOST_PLATFORM" == "linux-amd64" ]]; then
                 pack_args=(--src "${pack_args[@]}")
               fi
@@ -171,16 +171,16 @@ jobs:
 
               if [[ "$INCLUDE_KDIR_MIN" == "true" ]]; then
                 python3 build/build-droid-ddk.py build \
-                  --host-platform "$HOST_PLATFORM" --android "$TARGET" --min
+                  --host-platform "$HOST_PLATFORM" --android "$ANDROID_TARGET" --min
                 build/pack-droid-ddk.sh --kdir-min \
-                  --host-platform "$HOST_PLATFORM" --version "$TARGET"
+                  --host-platform "$HOST_PLATFORM" --version "$ANDROID_TARGET"
               fi
             '
           sudo chown -R "$(id -u):$(id -g)" prebuilts
 
       - name: Publish GitHub Release assets
         run: |
-          args=(--target "$TARGET" --host-platform "$HOST_PLATFORM")
+          args=(--target "$ANDROID_TARGET" --host-platform "$HOST_PLATFORM")
           if [[ "$HOST_PLATFORM" == "linux-amd64" && -n "$RUST_VERSION" ]]; then
             args+=(--rust)
           fi
