@@ -27,11 +27,12 @@ On first use, `dddk` creates `.dddk-config` in the current project directory. Im
 The project configuration can also be created directly:
 
 ```ini
+version=android17-6.18
 mode=docker
 source=github
 ```
 
-`.dddk-config` must contain both `mode` and `source`. `mode` accepts `docker` or `local`; `source` accepts `docker`, `github`, or `cnb`. `dddk` parses the fields without executing shell content and no longer reads or writes `$HOME/.droid-ddk/source` or `$HOME/.droid-ddk/mode`.
+`.dddk-config` must contain `version`, `mode`, and `source`. `version` uses the `android<major>-<kernel>` format, `mode` accepts `docker` or `local`, and `source` accepts `docker`, `github`, or `cnb`. `dddk` parses the fields without executing shell content and does not read or write `$HOME/.droid-ddk/source` or `$HOME/.droid-ddk/mode`.
 
 ```bash
 dddk update
@@ -63,16 +64,15 @@ dddk shell --target "$TARGET" --module "$MODULE_DIR"
 
 `--module` mounts the module directory at `/build` and runs the standard Kbuild command against the matching kernel build directory. The `.ko` file and intermediate outputs are written directly to the module directory.
 
-Pin the default target with `.ddk-version`:
+Pin the default target in `.dddk-config`:
 
 ```bash
-echo android17-6.18 > .ddk-version
 dddk pull
 dddk build --module "$PWD/my-driver" -- -j8
 dddk clean --module "$PWD/my-driver"
 ```
 
-`--target` takes precedence over `.ddk-version`, which takes precedence over the `DDK_TARGET` environment variable. Set `DDK_ROOT` to override the local DDK installation path. Use `--platform linux/amd64` or `--platform linux/arm64` to select an image architecture explicitly.
+`--target` takes precedence over `version` in `.dddk-config`. Without `--platform`, `dddk` selects `linux/amd64` or `linux/arm64` from the current host. Pass a platform only to override host detection. Set `DDK_ROOT` to override the local DDK installation path.
 
 ## Build in GitHub Actions
 

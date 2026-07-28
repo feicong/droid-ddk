@@ -27,11 +27,12 @@ curl -fsSL https://raw.githubusercontent.com/feicong/droid-ddk/main/host/install
 也可直接创建项目配置：
 
 ```ini
+version=android17-6.18
 mode=docker
 source=github
 ```
 
-`.dddk-config`必须同时包含`mode`和`source`。`mode`接受`docker`或`local`，`source`接受`docker`、`github`或`cnb`。`dddk`逐项解析该文件，不执行其中的Shell内容，也不再读取或写入`$HOME/.droid-ddk/source`与`$HOME/.droid-ddk/mode`。
+`.dddk-config`必须同时包含`version`、`mode`和`source`。`version`使用`android<主版本>-<内核版本>`格式，`mode`接受`docker`或`local`，`source`接受`docker`、`github`或`cnb`。`dddk`逐项解析该文件，不执行其中的Shell内容，也不读取或写入`$HOME/.droid-ddk/source`与`$HOME/.droid-ddk/mode`。
 
 ```bash
 dddk update
@@ -63,16 +64,15 @@ dddk shell --target "$TARGET" --module "$MODULE_DIR"
 
 `--module`将模块目录挂载到镜像内的`/build`，并执行与镜像内核构建目录匹配的标准Kbuild命令。`.ko`及中间产物直接写入模块目录。
 
-项目可用`.ddk-version`固定默认目标：
+项目用`.dddk-config`固定默认目标：
 
 ```bash
-echo android17-6.18 > .ddk-version
 dddk pull
 dddk build --module "$PWD/my-driver" -- -j8
 dddk clean --module "$PWD/my-driver"
 ```
 
-命令行`--target`优先级高于`.ddk-version`，后者优先级高于`DDK_TARGET`环境变量。通过`--platform linux/amd64`或`--platform linux/arm64`可以显式选择镜像架构。
+命令行`--target`优先级高于`.dddk-config`中的`version`。省略`--platform`时，`dddk`按当前宿主自动选择`linux/amd64`或`linux/arm64`；只有覆盖宿主判断时才显式传入平台。
 
 ## 在GitHub Actions中编译
 

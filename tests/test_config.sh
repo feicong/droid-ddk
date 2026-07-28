@@ -23,29 +23,51 @@ DROID_DDK_PROJECT_CONFIG="$TEST_DIR/project/.dddk-config"
 
 cat > "$DROID_DDK_PROJECT_CONFIG" <<'EOF'
 # Project-local Droid DDK configuration.
+version=android15-6.6
 mode=docker
 source=github
 EOF
 
+DROID_DDK_VERSION=""
 DROID_DDK_MODE=""
 SOURCE=""
 load_project_config
+assert_eq "$DROID_DDK_VERSION" android15-6.6
 assert_eq "$DROID_DDK_MODE" docker
 assert_eq "$SOURCE" github
 
-printf 'mode=docker\nunknown=value\nsource=github\n' > "$DROID_DDK_PROJECT_CONFIG"
+printf 'version=android15-6.6\nmode=docker\nunknown=value\nsource=github\n' > "$DROID_DDK_PROJECT_CONFIG"
 if (load_project_config >/dev/null 2>&1); then
 	fail 'unknown configuration key was accepted'
 fi
 
-printf 'mode=docker\n' > "$DROID_DDK_PROJECT_CONFIG"
+printf 'mode=docker\nsource=github\n' > "$DROID_DDK_PROJECT_CONFIG"
 if (load_project_config >/dev/null 2>&1); then
 	fail 'incomplete configuration was accepted'
 fi
 
+DROID_DDK_VERSION=android16-6.12
 DROID_DDK_MODE=docker
-SOURCE=docker
+SOURCE=github
 write_project_config
-assert_eq "$(cat "$DROID_DDK_PROJECT_CONFIG")" $'mode=docker\nsource=docker'
+assert_eq "$(cat "$DROID_DDK_PROJECT_CONFIG")" $'version=android16-6.12\nmode=docker\nsource=github'
 [[ ! -e "$HOME/.droid-ddk/source" ]] || fail 'legacy source file was created'
 [[ ! -e "$HOME/.droid-ddk/mode" ]] || fail 'legacy mode file was created'
+
+mkdir -p "$TEST_DIR/bin"
+cat > "$TEST_DIR/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DDDK_DOCKER_LOG"
+EOF
+chmod 0755 "$TEST_DIR/bin/docker"
+(
+	cd "$TEST_DIR/project"
+	DDDK_DOCKER_LOG="$TEST_DIR/docker.log" \
+		PATH="$TEST_DIR/bin:$PATH" \
+		HOME="$HOME" \
+		"$ROOT/scripts/dddk" build > "$TEST_DIR/build.stdout"
+)
+grep -Fq 'Using target from .dddk-config: android16-6.12' "$TEST_DIR/build.stdout" || \
+	fail 'project config version was not selected as the default target'
+grep -Fq 'ghcr.io/feicong/droid-ddk:android16-6.12' "$TEST_DIR/docker.log" || \
+	fail 'project config version was not used for the build image'

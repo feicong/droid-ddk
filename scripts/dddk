@@ -16,18 +16,15 @@ set -euo pipefail
 #   - Self-updating capability
 #
 # Configuration:
-#   .dddk-config  - Project-local mode and image source
+#   .dddk-config  - Project-local version, mode and image source
 #   ~/.cache/droid-ddk/mapping.json - Cached target mapping
-#   .ddk-version   - Project-level target version (in project directory)
 #
 # Environment Variables:
 #   DDK_ROOT   - Local DDK installation path (default: /opt/droid-ddk)
-#   DDK_TARGET - Default build target
 #
 # Target Resolution Priority:
 #   1. Command line argument (--target or positional)
-#   2. .ddk-version file in current directory
-#   3. DDK_TARGET environment variable
+#   2. version in .dddk-config
 #
 # ============================================================================
 # Platform Functions
@@ -103,6 +100,7 @@ DROID_DDK_PROJECT_CONFIG="$(pwd -P)/.dddk-config"
 DROID_DDK_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/droid-ddk"
 DROID_DDK_MAPPING_JSON="$DROID_DDK_CACHE_DIR/mapping.json"
 DDK_ROOT="${DDK_ROOT:-/opt/droid-ddk}"
+DROID_DDK_VERSION=""
 DROID_DDK_MODE=""
 DROID_DDK_PLATFORM="${DROID_DDK_PLATFORM:-}"
 DOCKER_PLATFORM=""
@@ -162,7 +160,7 @@ Commands:
 
 Options:
   --target, -t   image tag like 'android17-6.18'
-                 (Priority: command arg > .ddk-version file > DDK_TARGET env)
+                 (Priority: command arg > version in .dddk-config)
   --env, -e      pass environment variable (can be used multiple times)
                  Example: --env CONFIG_FOO=y -e CONFIG_BAR=n
   --module, -m   external kernel module directory; build, clean and shell
@@ -172,8 +170,7 @@ Options:
 
 Target Resolution:
   1. Command line argument (--target or positional)
-  2. .ddk-version file in current directory
-  3. DDK_TARGET environment variable
+  2. version in .dddk-config
 
 Examples:
   $prog list
@@ -193,10 +190,9 @@ Examples:
   $prog build android17-6.18 --env CONFIG_FOO=y -e CONFIG_BAR=n
   $prog shell -t android17-6.18 --env DEBUG=1
 
-  # Using .ddk-version file:
-  echo "android17-6.18" > .ddk-version
-  $prog build    # Will use android17-6.18 from .ddk-version
-  $prog clean    # Will use android17-6.18 from .ddk-version
+  # Using the version in .dddk-config:
+  $prog build    # Uses the configured version
+  $prog clean    # Uses the configured version
 EOF
 }
 
@@ -205,7 +201,7 @@ EOF
 # ============================================================================
 
 load_project_config() {
-  local line mode="" source=""
+  local line version="" mode="" source=""
 
   if [[ -L "$DROID_DDK_PROJECT_CONFIG" || ! -f "$DROID_DDK_PROJECT_CONFIG" ]]; then
     echo "Error: project config must be a regular file: $DROID_DDK_PROJECT_CONFIG" >&2
@@ -217,6 +213,13 @@ load_project_config() {
     case "$line" in
       ''|'#'*)
         continue
+        ;;
+      version=*)
+        if [[ -n "$version" ]]; then
+          echo "Error: duplicate version in $DROID_DDK_PROJECT_CONFIG" >&2
+          return 2
+        fi
+        version="${line#version=}"
         ;;
       mode=*)
         if [[ -n "$mode" ]]; then
@@ -239,6 +242,10 @@ load_project_config() {
     esac
   done < "$DROID_DDK_PROJECT_CONFIG"
 
+  if [[ ! "$version" =~ ^android[0-9]+-[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: version must use android<major>-<kernel> in $DROID_DDK_PROJECT_CONFIG" >&2
+    return 2
+  fi
   if [[ ! "$mode" =~ ^(local|docker)$ ]]; then
     echo "Error: mode must be local or docker in $DROID_DDK_PROJECT_CONFIG" >&2
     return 2
@@ -248,6 +255,7 @@ load_project_config() {
     return 2
   fi
 
+  DROID_DDK_VERSION="$version"
   DROID_DDK_MODE="$mode"
   SOURCE="$source"
 }
@@ -259,14 +267,22 @@ write_project_config() {
     echo "Error: refusing to replace symlink config: $DROID_DDK_PROJECT_CONFIG" >&2
     return 2
   fi
-  if ! (umask 077 && printf 'mode=%s\nsource=%s\n' \
-      "$DROID_DDK_MODE" "$SOURCE" > "$temp_config"); then
+  if ! (umask 077 && printf 'version=%s\nmode=%s\nsource=%s\n' \
+      "$DROID_DDK_VERSION" "$DROID_DDK_MODE" "$SOURCE" > "$temp_config"); then
     rm -f "$temp_config"
     return 1
   fi
   if ! mv -f "$temp_config" "$DROID_DDK_PROJECT_CONFIG"; then
     rm -f "$temp_config"
     return 1
+  fi
+}
+
+configure_version() {
+  if [[ -n "$TARGET" ]]; then
+    DROID_DDK_VERSION="$TARGET"
+  else
+    DROID_DDK_VERSION="android13-5.15"
   fi
 }
 
@@ -407,6 +423,7 @@ init_config() {
   if [[ -e "$DROID_DDK_PROJECT_CONFIG" || -L "$DROID_DDK_PROJECT_CONFIG" ]]; then
     load_project_config
   else
+    configure_version
     configure_mode
     configure_source
     write_project_config
@@ -421,28 +438,6 @@ init_config() {
 # ============================================================================
 # Target Resolution Functions
 # ============================================================================
-
-# Read target from .ddk-version file in current directory
-# Returns:
-#   Echoes the target string if file exists and is valid
-#   Echoes empty string if file doesn't exist or is empty
-get_target_from_version_file() {
-  local version_file=".ddk-version"
-
-  if [[ -f "$version_file" ]]; then
-    # Read and trim whitespace
-    local target
-    target=$(cat "$version_file" | tr -d '[:space:]')
-
-    if [[ -n "$target" ]]; then
-      echo "$target"
-      return 0
-    fi
-  fi
-
-  echo ""
-  return 0
-}
 
 resolve_build_dir() {
   if [[ -n "$MODULE_DIR" ]]; then
@@ -1176,11 +1171,11 @@ main() {
     exit 0
   fi
 
-  # Initialize configuration
-  init_config
-
   # Parse command and arguments
   parse_args "$@"
+
+  # Initialize configuration after parsing so a first-run target is persisted.
+  init_config
 
   case "$CMD" in
     build|clean|shell)
@@ -1225,22 +1220,8 @@ main() {
 
   # Validate TARGET for commands that need it
   if [[ -z "$TARGET" ]]; then
-    # Try .ddk-version file first
-    local version_file_target
-    version_file_target=$(get_target_from_version_file)
-    if [[ -n "$version_file_target" ]]; then
-      TARGET="$version_file_target"
-      echo "Using target from .ddk-version: $TARGET"
-    # Then try environment variable fallback
-    elif [[ -n "${DDK_TARGET:-}" ]]; then
-      TARGET="$DDK_TARGET"
-      echo "Using target from DDK_TARGET: $TARGET"
-    else
-      echo "Error: target is required. Use --target or provide it as the first positional argument," >&2
-      echo "       or create a .ddk-version file, or set DDK_TARGET environment variable." >&2
-      usage
-      exit 2
-    fi
+    TARGET="$DROID_DDK_VERSION"
+    echo "Using target from .dddk-config: $TARGET"
   fi
 
   # Handle commands that need TARGET
