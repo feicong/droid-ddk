@@ -22,7 +22,16 @@
 curl -fsSL https://raw.githubusercontent.com/feicong/droid-ddk/main/host/install.sh | sudo bash
 ```
 
-Select `docker` mode on first use. Images are published to both `docker.io/fsx199/droid-ddk` and `ghcr.io/feicong/droid-ddk`. Select the `docker` or `github` source; `dddk` automatically pulls the x86_64 or ARM64 image for the host architecture.
+On first use, `dddk` creates `.dddk-config` in the current project directory. Images are published to both `docker.io/fsx199/droid-ddk` and `ghcr.io/feicong/droid-ddk`. Select the `docker` or `github` source; `dddk` automatically pulls the x86_64 or ARM64 image for the host architecture.
+
+The project configuration can also be created directly:
+
+```ini
+mode=docker
+source=github
+```
+
+`.dddk-config` must contain both `mode` and `source`. `mode` accepts `docker` or `local`; `source` accepts `docker`, `github`, or `cnb`. `dddk` parses the fields without executing shell content and no longer reads or writes `$HOME/.droid-ddk/source` or `$HOME/.droid-ddk/mode`.
 
 ```bash
 dddk update
@@ -90,6 +99,7 @@ jobs:
           arch: aarch64
           module-path: hello-ko
           module-name: hello-ko
+          registry: ghcr
 ```
 
 The module directory must contain a `Makefile` and a matching `.c` file. The output artifact is named `Image-TAG-ARCH` and contains `TAG_MODULE_NAME.ko`.

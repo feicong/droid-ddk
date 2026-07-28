@@ -16,9 +16,8 @@ set -euo pipefail
 #   - Self-updating capability
 #
 # Configuration:
-#   ~/.droid-ddk/source  - Image source (cnb/github/docker)
-#   ~/.droid-ddk/mode    - Run mode (local/docker)
-#   ~/.droid-ddk/mapping.json - Target to clang version mapping
+#   .dddk-config  - Project-local mode and image source
+#   ~/.cache/droid-ddk/mapping.json - Cached target mapping
 #   .ddk-version   - Project-level target version (in project directory)
 #
 # Environment Variables:
@@ -100,10 +99,9 @@ droid_ddk_artifact_platform() {
 # ============================================================================
 
 prog=$(basename "$0")
-DROID_DDK_CONFIG_DIR="$HOME/.droid-ddk"
-DROID_DDK_SOURCE_CONFIG="$DROID_DDK_CONFIG_DIR/source"
-DROID_DDK_MODE_CONFIG="$DROID_DDK_CONFIG_DIR/mode"
-DROID_DDK_MAPPING_JSON="$DROID_DDK_CONFIG_DIR/mapping.json"
+DROID_DDK_PROJECT_CONFIG="$(pwd -P)/.dddk-config"
+DROID_DDK_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/droid-ddk"
+DROID_DDK_MAPPING_JSON="$DROID_DDK_CACHE_DIR/mapping.json"
 DDK_ROOT="${DDK_ROOT:-/opt/droid-ddk}"
 DROID_DDK_MODE=""
 DROID_DDK_PLATFORM="${DROID_DDK_PLATFORM:-}"
@@ -206,28 +204,78 @@ EOF
 # Configuration Functions
 # ============================================================================
 
-migrate_config() {
-  # Migration: if ~/.droid-ddk is a file, migrate to directory structure
-  if [[ -f "$DROID_DDK_CONFIG_DIR" && ! -L "$DROID_DDK_CONFIG_DIR" ]]; then
-    echo "Migrating configuration from file to directory structure..."
-    local old_source
-    old_source=$(cat "$DROID_DDK_CONFIG_DIR")
-    rm -f "$DROID_DDK_CONFIG_DIR"
-    mkdir -p "$DROID_DDK_CONFIG_DIR"
-    echo "$old_source" > "$DROID_DDK_SOURCE_CONFIG"
-    echo "Migration completed: $DROID_DDK_CONFIG_DIR is now a directory"
+load_project_config() {
+  local line mode="" source=""
+
+  if [[ -L "$DROID_DDK_PROJECT_CONFIG" || ! -f "$DROID_DDK_PROJECT_CONFIG" ]]; then
+    echo "Error: project config must be a regular file: $DROID_DDK_PROJECT_CONFIG" >&2
+    return 2
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      ''|'#'*)
+        continue
+        ;;
+      mode=*)
+        if [[ -n "$mode" ]]; then
+          echo "Error: duplicate mode in $DROID_DDK_PROJECT_CONFIG" >&2
+          return 2
+        fi
+        mode="${line#mode=}"
+        ;;
+      source=*)
+        if [[ -n "$source" ]]; then
+          echo "Error: duplicate source in $DROID_DDK_PROJECT_CONFIG" >&2
+          return 2
+        fi
+        source="${line#source=}"
+        ;;
+      *)
+        echo "Error: invalid project config entry: $line" >&2
+        return 2
+        ;;
+    esac
+  done < "$DROID_DDK_PROJECT_CONFIG"
+
+  if [[ ! "$mode" =~ ^(local|docker)$ ]]; then
+    echo "Error: mode must be local or docker in $DROID_DDK_PROJECT_CONFIG" >&2
+    return 2
+  fi
+  if [[ ! "$source" =~ ^(cnb|github|docker)$ ]]; then
+    echo "Error: source must be cnb, github or docker in $DROID_DDK_PROJECT_CONFIG" >&2
+    return 2
+  fi
+
+  DROID_DDK_MODE="$mode"
+  SOURCE="$source"
+}
+
+write_project_config() {
+  local temp_config="${DROID_DDK_PROJECT_CONFIG}.tmp.$$"
+
+  if [[ -L "$DROID_DDK_PROJECT_CONFIG" ]]; then
+    echo "Error: refusing to replace symlink config: $DROID_DDK_PROJECT_CONFIG" >&2
+    return 2
+  fi
+  if ! (umask 077 && printf 'mode=%s\nsource=%s\n' \
+      "$DROID_DDK_MODE" "$SOURCE" > "$temp_config"); then
+    rm -f "$temp_config"
+    return 1
+  fi
+  if ! mv -f "$temp_config" "$DROID_DDK_PROJECT_CONFIG"; then
+    rm -f "$temp_config"
+    return 1
   fi
 }
 
-ensure_config_dir() {
-  if [[ ! -d "$DROID_DDK_CONFIG_DIR" ]]; then
-    mkdir -p "$DROID_DDK_CONFIG_DIR"
-  fi
+ensure_cache_dir() {
+  mkdir -p "$DROID_DDK_CACHE_DIR"
 }
 
 configure_mode() {
-  # Check if DDK_ROOT exists and configure mode
-  if [[ -d "$DDK_ROOT" ]] && [[ ! -f "$DROID_DDK_MODE_CONFIG" ]]; then
+  if [[ -d "$DDK_ROOT" ]]; then
     echo "DDK_ROOT ($DDK_ROOT) detected. Please select running mode:"
     echo "1. local  (use local DDK installation)"
     echo "2. docker (use Docker containers)"
@@ -245,90 +293,58 @@ configure_mode() {
 
     case "$mode_choice" in
       1)
-        echo "local" > "$DROID_DDK_MODE_CONFIG"
+        DROID_DDK_MODE="local"
         echo "Selected: local mode"
         ;;
       2)
-        echo "docker" > "$DROID_DDK_MODE_CONFIG"
+        DROID_DDK_MODE="docker"
         echo "Selected: docker mode"
         ;;
       *)
         echo "Invalid option, defaulting to docker mode" >&2
-        echo "docker" > "$DROID_DDK_MODE_CONFIG"
+        DROID_DDK_MODE="docker"
         ;;
     esac
-  fi
-
-  # Determine running mode
-  if [[ -f "$DROID_DDK_MODE_CONFIG" ]]; then
-    DROID_DDK_MODE=$(cat "$DROID_DDK_MODE_CONFIG")
-
-    # Validate mode value
-    if [[ ! "$DROID_DDK_MODE" =~ ^(local|docker)$ ]]; then
-      echo "Warning: Invalid mode '$DROID_DDK_MODE' in config, resetting to docker" >&2
-      echo "docker" > "$DROID_DDK_MODE_CONFIG"
-      DROID_DDK_MODE="docker"
-    fi
   else
     DROID_DDK_MODE="docker"
-  fi
-
-  # Check dependencies for local mode
-  if [[ "$DROID_DDK_MODE" == "local" ]]; then
-    ensure_dependency jq
   fi
 }
 
 configure_source() {
-  # Initialize config if not exists
-  if [[ ! -f "$DROID_DDK_SOURCE_CONFIG" ]]; then
-    echo "First run detected. Please select an image source:"
-    echo "1. docker (docker.io/fsx199/droid-ddk)"
-    echo "2. github (ghcr.io/feicong/droid-ddk)"
-    echo "3. cnb (docker.cnb.cool/feicong/droid-ddk/droid-ddk)"
+  echo "First run detected. Please select an image source:"
+  echo "1. docker (docker.io/fsx199/droid-ddk)"
+  echo "2. github (ghcr.io/feicong/droid-ddk)"
+  echo "3. cnb (docker.cnb.cool/feicong/droid-ddk/droid-ddk)"
+  echo ""
+  echo "Waiting 30 seconds (default: docker)..."
+
+  local choice=""
+  if read -t 30 -p "Enter your choice (1/2/3): " choice; then
     echo ""
-    echo "Waiting 30 seconds (default: docker)..."
-
-    local choice=""
-    if read -t 30 -p "Enter your choice (1/2/3): " choice; then
-      echo ""
-    else
-      echo ""
-      echo "Timeout: defaulting to docker source"
-      choice="1"
-    fi
-
-    case "$choice" in
-      1)
-        echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
-        echo "Selected: docker source"
-        ;;
-      2)
-        echo "github" > "$DROID_DDK_SOURCE_CONFIG"
-        echo "Selected: github source"
-        ;;
-      3)
-        echo "cnb" > "$DROID_DDK_SOURCE_CONFIG"
-        echo "Selected: cnb source"
-        ;;
-      *)
-        echo "Invalid option, defaulting to docker source" >&2
-        echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
-        ;;
-    esac
+  else
+    echo ""
+    echo "Timeout: defaulting to docker source"
+    choice="1"
   fi
 
-  # Read configured source
-  SOURCE=$(cat "$DROID_DDK_SOURCE_CONFIG")
-
-  # Validate source value
-  if [[ ! "$SOURCE" =~ ^(cnb|github|docker)$ ]]; then
-    echo "Warning: Invalid source '$SOURCE' in config, resetting to docker" >&2
-    echo "docker" > "$DROID_DDK_SOURCE_CONFIG"
-    SOURCE="docker"
-  fi
-
-  set_image_base
+  case "$choice" in
+    1)
+      SOURCE="docker"
+      echo "Selected: docker source"
+      ;;
+    2)
+      SOURCE="github"
+      echo "Selected: github source"
+      ;;
+    3)
+      SOURCE="cnb"
+      echo "Selected: cnb source"
+      ;;
+    *)
+      echo "Invalid option, defaulting to docker source" >&2
+      SOURCE="docker"
+      ;;
+  esac
 }
 
 set_image_base() {
@@ -370,6 +386,7 @@ download_mapping_json() {
   esac
 
   echo "Downloading mapping.json from: $mapping_url"
+  ensure_cache_dir
   if curl -fsSL "$mapping_url" -o "$DROID_DDK_MAPPING_JSON"; then
     echo "Successfully downloaded mapping.json"
     return 0
@@ -387,10 +404,17 @@ ensure_mapping_json() {
 }
 
 init_config() {
-  migrate_config
-  ensure_config_dir
-  configure_mode
-  configure_source
+  if [[ -e "$DROID_DDK_PROJECT_CONFIG" || -L "$DROID_DDK_PROJECT_CONFIG" ]]; then
+    load_project_config
+  else
+    configure_mode
+    configure_source
+    write_project_config
+  fi
+  if [[ "$DROID_DDK_MODE" == "local" ]]; then
+    ensure_dependency jq
+  fi
+  set_image_base
   ensure_mapping_json
 }
 

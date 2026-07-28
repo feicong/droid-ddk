@@ -22,7 +22,16 @@
 curl -fsSL https://raw.githubusercontent.com/feicong/droid-ddk/main/host/install.sh | sudo bash
 ```
 
-首次运行选择`docker`模式。镜像同时发布到Docker Hub的`docker.io/fsx199/droid-ddk`与GHCR的`ghcr.io/feicong/droid-ddk`；镜像源选择`docker`或`github`即可，`dddk`会按宿主架构自动拉取x86_64或ARM64镜像。
+首次运行会在当前项目目录生成`.dddk-config`。镜像同时发布到DockerHub的`docker.io/fsx199/droid-ddk`与GHCR的`ghcr.io/feicong/droid-ddk`；镜像源选择`docker`或`github`即可，`dddk`会按宿主架构自动拉取x86_64或ARM64镜像。
+
+也可直接创建项目配置：
+
+```ini
+mode=docker
+source=github
+```
+
+`.dddk-config`必须同时包含`mode`和`source`。`mode`接受`docker`或`local`，`source`接受`docker`、`github`或`cnb`。`dddk`逐项解析该文件，不执行其中的Shell内容，也不再读取或写入`$HOME/.droid-ddk/source`与`$HOME/.droid-ddk/mode`。
 
 ```bash
 dddk update
@@ -90,6 +99,7 @@ jobs:
           arch: aarch64
           module-path: hello-ko
           module-name: hello-ko
+          registry: ghcr
 ```
 
 模块目录需包含`Makefile`与同名`.c`文件。输出Artifact名为`Image-TAG-ARCH`，其中的模块文件名为`TAG_MODULE_NAME.ko`。
