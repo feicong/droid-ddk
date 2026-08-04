@@ -30,9 +30,10 @@ curl -fsSL https://raw.githubusercontent.com/feicong/droid-ddk/main/host/install
 version=android17-6.18
 mode=docker
 source=github
+slim=true
 ```
 
-`.dddk-config`必须同时包含`version`、`mode`和`source`。`version`使用`android<主版本>-<内核版本>`格式，`mode`接受`docker`或`local`，`source`接受`docker`、`github`或`cnb`。`dddk`逐项解析该文件，不执行其中的Shell内容，也不读取或写入`$HOME/.droid-ddk/source`与`$HOME/.droid-ddk/mode`。
+`.dddk-config`必须同时包含`version`、`mode`和`source`。`version`使用`android<主版本>-<内核版本>`格式，`mode`接受`docker`或`local`，`source`接受`docker`、`github`或`cnb`。可选的`slim=true`选择同一目标的`droid-ddk-min`精简镜像；省略或设为`false`时使用完整镜像。`dddk`逐项解析该文件，不执行其中的Shell内容，也不读取或写入`$HOME/.droid-ddk/source`与`$HOME/.droid-ddk/mode`。
 
 ```bash
 dddk update

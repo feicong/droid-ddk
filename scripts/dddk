@@ -103,6 +103,7 @@ DDK_ROOT="${DDK_ROOT:-/opt/droid-ddk}"
 DROID_DDK_VERSION=""
 DROID_DDK_MODE=""
 DROID_DDK_PLATFORM="${DROID_DDK_PLATFORM:-}"
+DROID_DDK_SLIM=false
 DOCKER_PLATFORM=""
 SOURCE=""
 IMAGE_BASE=""
@@ -201,7 +202,7 @@ EOF
 # ============================================================================
 
 load_project_config() {
-  local line version="" mode="" source=""
+  local line version="" mode="" source="" slim=""
 
   if [[ -L "$DROID_DDK_PROJECT_CONFIG" || ! -f "$DROID_DDK_PROJECT_CONFIG" ]]; then
     echo "Error: project config must be a regular file: $DROID_DDK_PROJECT_CONFIG" >&2
@@ -235,6 +236,13 @@ load_project_config() {
         fi
         source="${line#source=}"
         ;;
+      slim=*)
+        if [[ -n "$slim" ]]; then
+          echo "Error: duplicate slim in $DROID_DDK_PROJECT_CONFIG" >&2
+          return 2
+        fi
+        slim="${line#slim=}"
+        ;;
       *)
         echo "Error: invalid project config entry: $line" >&2
         return 2
@@ -254,10 +262,15 @@ load_project_config() {
     echo "Error: source must be cnb, github or docker in $DROID_DDK_PROJECT_CONFIG" >&2
     return 2
   fi
+  if [[ -n "$slim" && ! "$slim" =~ ^(true|false)$ ]]; then
+    echo "Error: slim must be true or false in $DROID_DDK_PROJECT_CONFIG" >&2
+    return 2
+  fi
 
   DROID_DDK_VERSION="$version"
   DROID_DDK_MODE="$mode"
   SOURCE="$source"
+  DROID_DDK_SLIM="${slim:-false}"
 }
 
 write_project_config() {
@@ -267,8 +280,17 @@ write_project_config() {
     echo "Error: refusing to replace symlink config: $DROID_DDK_PROJECT_CONFIG" >&2
     return 2
   fi
-  if ! (umask 077 && printf 'version=%s\nmode=%s\nsource=%s\n' \
-      "$DROID_DDK_VERSION" "$DROID_DDK_MODE" "$SOURCE" > "$temp_config"); then
+  if [[ ! "$DROID_DDK_SLIM" =~ ^(true|false)$ ]]; then
+    echo "Error: slim must be true or false" >&2
+    return 2
+  fi
+  if ! (umask 077 && {
+      printf 'version=%s\nmode=%s\nsource=%s\n' \
+        "$DROID_DDK_VERSION" "$DROID_DDK_MODE" "$SOURCE"
+      if [[ "$DROID_DDK_SLIM" == "true" ]]; then
+        printf 'slim=true\n'
+      fi
+    } > "$temp_config"); then
     rm -f "$temp_config"
     return 1
   fi
@@ -364,9 +386,14 @@ configure_source() {
 }
 
 set_image_base() {
+  local image_name="droid-ddk"
+  if [[ "$DROID_DDK_SLIM" == "true" ]]; then
+    image_name="droid-ddk-min"
+  fi
+
   if [[ -f "$DROID_DDK_MAPPING_JSON" ]] && command -v jq &> /dev/null; then
     local mapped_image
-    mapped_image=$(jq -r --arg source "$SOURCE" '.registry["droid-ddk"][$source] // empty' "$DROID_DDK_MAPPING_JSON")
+    mapped_image=$(jq -r --arg image "$image_name" --arg source "$SOURCE" '.registry[$image][$source] // empty' "$DROID_DDK_MAPPING_JSON")
     if [[ -n "$mapped_image" ]]; then
       IMAGE_BASE="$mapped_image"
       return
@@ -375,17 +402,17 @@ set_image_base() {
 
   case "$SOURCE" in
     cnb)
-      IMAGE_BASE="docker.cnb.cool/feicong/droid-ddk/droid-ddk"
+      IMAGE_BASE="docker.cnb.cool/feicong/droid-ddk/${image_name}"
       ;;
     github)
-      IMAGE_BASE="ghcr.io/feicong/droid-ddk"
+      IMAGE_BASE="ghcr.io/feicong/${image_name}"
       ;;
     docker)
-      IMAGE_BASE="docker.io/fsx199/droid-ddk"
+      IMAGE_BASE="docker.io/fsx199/${image_name}"
       ;;
     *)
       echo "Warning: unknown source configuration '$SOURCE', using default docker source" >&2
-      IMAGE_BASE="docker.io/fsx199/droid-ddk"
+      IMAGE_BASE="docker.io/fsx199/${image_name}"
       ;;
   esac
 }

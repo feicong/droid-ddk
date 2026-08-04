@@ -30,9 +30,10 @@ The project configuration can also be created directly:
 version=android17-6.18
 mode=docker
 source=github
+slim=true
 ```
 
-`.dddk-config` must contain `version`, `mode`, and `source`. `version` uses the `android<major>-<kernel>` format, `mode` accepts `docker` or `local`, and `source` accepts `docker`, `github`, or `cnb`. `dddk` parses the fields without executing shell content and does not read or write `$HOME/.droid-ddk/source` or `$HOME/.droid-ddk/mode`.
+`.dddk-config` must contain `version`, `mode`, and `source`. `version` uses the `android<major>-<kernel>` format, `mode` accepts `docker` or `local`, and `source` accepts `docker`, `github`, or `cnb`. Optional `slim=true` selects the target's reduced `droid-ddk-min` image; omitting it or setting it to `false` selects the full image. `dddk` parses the fields without executing shell content and does not read or write `$HOME/.droid-ddk/source` or `$HOME/.droid-ddk/mode`.
 
 ```bash
 dddk update

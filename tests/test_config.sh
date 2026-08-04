@@ -30,15 +30,31 @@ EOF
 
 DROID_DDK_VERSION=""
 DROID_DDK_MODE=""
+DROID_DDK_SLIM=false
 SOURCE=""
 load_project_config
 assert_eq "$DROID_DDK_VERSION" android15-6.6
 assert_eq "$DROID_DDK_MODE" docker
 assert_eq "$SOURCE" github
+assert_eq "$DROID_DDK_SLIM" false
+
+printf 'version=android16-6.12\nmode=docker\nsource=github\nslim=true\n' > "$DROID_DDK_PROJECT_CONFIG"
+load_project_config
+assert_eq "$DROID_DDK_SLIM" true
 
 printf 'version=android15-6.6\nmode=docker\nunknown=value\nsource=github\n' > "$DROID_DDK_PROJECT_CONFIG"
 if (load_project_config >/dev/null 2>&1); then
 	fail 'unknown configuration key was accepted'
+fi
+
+printf 'version=android15-6.6\nmode=docker\nsource=github\nslim=true\nslim=false\n' > "$DROID_DDK_PROJECT_CONFIG"
+if (load_project_config >/dev/null 2>&1); then
+	fail 'duplicate slim configuration was accepted'
+fi
+
+printf 'version=android15-6.6\nmode=docker\nsource=github\nslim=invalid\n' > "$DROID_DDK_PROJECT_CONFIG"
+if (load_project_config >/dev/null 2>&1); then
+	fail 'invalid slim configuration was accepted'
 fi
 
 printf 'mode=docker\nsource=github\n' > "$DROID_DDK_PROJECT_CONFIG"
@@ -48,9 +64,10 @@ fi
 
 DROID_DDK_VERSION=android16-6.12
 DROID_DDK_MODE=docker
+DROID_DDK_SLIM=true
 SOURCE=github
 write_project_config
-assert_eq "$(cat "$DROID_DDK_PROJECT_CONFIG")" $'version=android16-6.12\nmode=docker\nsource=github'
+assert_eq "$(cat "$DROID_DDK_PROJECT_CONFIG")" $'version=android16-6.12\nmode=docker\nsource=github\nslim=true'
 [[ ! -e "$HOME/.droid-ddk/source" ]] || fail 'legacy source file was created'
 [[ ! -e "$HOME/.droid-ddk/mode" ]] || fail 'legacy mode file was created'
 
@@ -69,5 +86,5 @@ chmod 0755 "$TEST_DIR/bin/docker"
 )
 grep -Fq 'Using target from .dddk-config: android16-6.12' "$TEST_DIR/build.stdout" || \
 	fail 'project config version was not selected as the default target'
-grep -Fq 'ghcr.io/feicong/droid-ddk:android16-6.12' "$TEST_DIR/docker.log" || \
-	fail 'project config version was not used for the build image'
+grep -Fq 'ghcr.io/feicong/droid-ddk-min:android16-6.12' "$TEST_DIR/docker.log" || \
+	fail 'slim project config was not used for the build image'
