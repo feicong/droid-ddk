@@ -1,6 +1,7 @@
 vmlinux
 docker-ddk-*
 setup.lock
+build/worktrees/
 docker/.dockerignore.*
 !docker/.dockerignore.template
 .pkg
